@@ -114,6 +114,17 @@ def complete(db, cfg, job_id: str, url: str | None = None, error: str | None = N
     db.update_job(job_id, status="done", output=str(out), spec=spec)
 
 
+def cancel(db, parent_id: str) -> int:
+    """Drop a queued short and the segments not yet submitted (frees its budget)."""
+    n = 0
+    for k in db.jobs(parent_id=parent_id):
+        if k["status"] == "pending":
+            db.update_job(k["id"], status="cancelled")
+            n += 1
+    db.update_job(parent_id, status="cancelled")
+    return n
+
+
 def ready(db) -> list[dict]:
     res = []
     for parent in db.jobs(kind="assemble", status="waiting"):

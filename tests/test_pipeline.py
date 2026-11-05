@@ -146,3 +146,12 @@ def test_outreach_lists_blocked_creators(env):
     db.set_rights("youtube:v9", "blocked", "x")
     out = pipeline.outreach(db, cfg)
     assert out[0]["channel"] == "BigCreator" and "revenue share" in out[0]["message"]
+
+
+def test_cancel_frees_budget(env):
+    cfg, db, _ = env
+    add_news(db, 5)
+    parent = pipeline.news_cycle(db, cfg)
+    assert db.credits_queued_since(0) > 0
+    assert hf.cancel(db, parent) == 6
+    assert db.credits_queued_since(0) == 0 and hf.pending(db) == []

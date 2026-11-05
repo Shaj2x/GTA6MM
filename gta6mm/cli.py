@@ -40,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--url")
     g.add_argument("--file")
     g.add_argument("--error")
+    cx = sub.add_parser("hf-cancel", help="cancel a queued AI short (assemble-... id)")
+    cx.add_argument("parent_id")
     sub.add_parser("assemble", help="build finished AI shorts whose segments are done")
 
     r = sub.add_parser("review", help="list posts awaiting approval")
@@ -84,6 +86,9 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "hf-complete":
         hf.complete(db, cfg, a.job_id, url=a.url, error=a.error, file=a.file)
         pipeline.assemble_ready(db, cfg)
+    elif a.cmd == "hf-cancel":
+        print(f"cancelled {hf.cancel(db, a.parent_id)} queued segments")
+        hf.export_pending(db, cfg)
     elif a.cmd == "assemble":
         pipeline.assemble_ready(db, cfg)
     elif a.cmd == "review":

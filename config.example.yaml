@@ -11,7 +11,7 @@ discovery:
   news_feeds:
     # tier: official > press > community. Scripts may only state as fact what
     # an official or press item supports; community items are shown as RUMOR.
-    - {url: "https://www.rockstargames.com/newswire/rss", tier: official}
+    # Rockstar Newswire has no public RSS. Add any official feed you find with tier: official.
     - {url: "https://www.ign.com/rss/articles/feed", tier: press, filter: "GTA|Grand Theft Auto"}
     - {url: "https://www.gamespot.com/feeds/news/", tier: press, filter: "GTA|Grand Theft Auto"}
     - {url: "https://www.pcgamer.com/rss/", tier: press, filter: "GTA|Grand Theft Auto"}

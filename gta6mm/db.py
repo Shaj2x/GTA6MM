@@ -154,7 +154,7 @@ class DB:
     def credits_queued_since(self, since: float) -> float:
         total = 0.0
         for j in self._rows("SELECT spec FROM jobs WHERE kind IN ('hf_video','hf_audio') "
-                            "AND created_at>=? AND status!='failed'", (since,)):
+                            "AND created_at>=? AND status NOT IN ('failed','cancelled')", (since,)):
             total += float(j["spec"].get("est_credits", 0))
         return total
 
