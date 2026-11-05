@@ -16,7 +16,13 @@ DEFAULTS: dict[str, Any] = {
         "lookback_hours": 48,
         "max_results_per_query": 25,
         "twitch_game_name": "Grand Theft Auto VI",
-        "news_feeds": [],
+        "news_feeds": [
+            {"url": "https://www.rockstargames.com/newswire/rss", "tier": "official"},
+            {"url": "https://www.ign.com/rss/articles/feed", "tier": "press", "filter": "GTA|Grand Theft Auto"},
+            {"url": "https://www.gamespot.com/feeds/news/", "tier": "press", "filter": "GTA|Grand Theft Auto"},
+            {"url": "https://www.pcgamer.com/rss/", "tier": "press", "filter": "GTA|Grand Theft Auto"},
+            {"url": "https://www.reddit.com/r/GTA6/top/.rss?t=day", "tier": "community"},
+        ],
     },
     "rights": {
         "own_channels": [],
