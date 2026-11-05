@@ -1,0 +1,65 @@
+# Copy to config.yaml and edit. Every key is optional; defaults live in gta6mm/config.py.
+
+data_dir: data
+release_date: "2026-11-19"          # GTA VI console launch (verify against Rockstar Newswire)
+
+discovery:
+  queries: ["GTA 6", "GTA VI", "Grand Theft Auto VI"]
+  lookback_hours: 48
+  max_results_per_query: 25
+  twitch_game_name: "Grand Theft Auto VI"
+  news_feeds:
+    # tier: official > press > community. Scripts may only state as fact what
+    # an official or press item supports; community items are shown as RUMOR.
+    - {url: "https://www.rockstargames.com/newswire/rss", tier: official}
+    - {url: "https://www.ign.com/rss/articles/feed", tier: press, filter: "GTA|Grand Theft Auto"}
+    - {url: "https://www.gamespot.com/feeds/news/", tier: press, filter: "GTA|Grand Theft Auto"}
+    - {url: "https://www.pcgamer.com/rss/", tier: press, filter: "GTA|Grand Theft Auto"}
+    - {url: "https://www.reddit.com/r/GTA6/top/.rss?t=day", tier: community}
+
+rights:
+  # Your own channels: clipped with no restrictions.
+  own_channels:
+    - {platform: youtube, channel_id: "UC_YOUR_CHANNEL_ID"}
+  # Creators who gave you written permission to clip. Keep the evidence (DM link,
+  # email, clip-program contract) — this is what you show if you get a claim.
+  licensed_creators:
+    # - {platform: twitch, channel: "somestreamer", evidence: "Discord DM 2026-11-04, 50/50 rev share", attribution: "@somestreamer"}
+  # Commentary/criticism mode. Short excerpts under your own voiceover are the
+  # standard fair-use pattern, but it is a legal judgement, not a guarantee, and
+  # unedited reuploads get demonetised as "reused content" anyway. Off by default.
+  allow_commentary: false
+  commentary:
+    max_source_seconds: 12          # longest continuous excerpt from someone else
+    require_voiceover: true         # renders are refused without your narration track
+  block_channels: []                # never touch (e.g. creators who said no)
+
+clipping:
+  clips_per_source: 3
+  clip_seconds: 30
+  max_new_clip_jobs_per_cycle: 6
+  font: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+  captions: true                    # needs `pip install .[captions]`
+
+scripting:
+  model: claude-opus-5-5
+  effort: medium
+  max_items: 12
+
+higgsfield:
+  # Preflighted 2026-11-05: seedance_2_0_mini 5s/720p = 5 credits, kling3_0 5s std = 7.5,
+  # seed_audio narration ~1.2. A 5-segment short ~= 26 credits.
+  video_model: seedance_2_0_mini
+  video_params: {duration: 5, resolution: "720p", generate_audio: false}
+  voice_model: seed_audio
+  voice_id: ""                      # pick one with the agent (Higgsfield list_voices); empty = agent chooses
+  aspect_ratio: "9:16"
+  daily_credit_budget: 60           # hard cap on credits queued per day
+  est_credits_per_video: 5
+  est_credits_per_voiceover: 1.5
+
+publish:
+  auto_approve: false               # true = skip the human review queue (not recommended)
+  youtube_privacy: private          # private until you flip it; "public" once you trust the pipeline
+  channel_handle: "@YourChannel"
+  default_tags: ["GTA 6", "GTA VI", "Grand Theft Auto VI", "gaming news"]

@@ -1,0 +1,29 @@
+[project]
+name = "gta6mm"
+version = "0.1.0"
+description = "GTA 6 launch content engine: trend discovery, rights-gated clipping, sourced news scripts, Higgsfield AI video jobs, and publishing."
+requires-python = ">=3.10"
+dependencies = [
+  "pyyaml>=6",
+  "requests>=2.31",
+  "feedparser>=6",
+  "yt-dlp>=2025.1.1",
+  "anthropic>=2.0",
+]
+
+[project.optional-dependencies]
+captions = ["faster-whisper>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+gta6mm = "gta6mm.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gta6mm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
