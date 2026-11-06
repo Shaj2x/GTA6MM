@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import date
 
-AI_NOTE = ("Visuals are AI-generated concept footage, not gameplay. Not affiliated with or "
-           "endorsed by Rockstar Games or Take-Two Interactive.")
+AI_NOTE = ("Footage from official Rockstar Games trailers and screenshots, used for news commentary. "
+           "Not affiliated with or endorsed by Rockstar Games or Take-Two Interactive.")
 
 
 def countdown(release: str, today: date | None = None) -> str:

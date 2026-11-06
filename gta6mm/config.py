@@ -37,12 +37,30 @@ DEFAULTS: dict[str, Any] = {
         "font": "",  # auto-detect
         "captions": True,
     },
+    "library": {
+        "official_channel": "https://www.youtube.com/@RockstarGames/videos",
+        "title_filter": r"Grand Theft Auto VI|GTA VI",
+        "scan_latest": 120,           # how many recent channel uploads to scan
+        "extra_urls": [],             # other official Rockstar video URLs
+        "min_shot_seconds": 0.7,
+        "max_shot_seconds": 2.5,
+    },
     "scripting": {"model": "claude-opus-5-5", "effort": "medium", "max_items": 12},
+    "shorts": {
+        "target_seconds": 20,         # 15-25s Shorts complete best
+        "max_cut_seconds": 1.8,       # fast pacing: a new shot at least this often
+        "min_cut_seconds": 0.7,
+        "max_ai_clips": 1,            # AI only as an occasional effect shot
+        "ai_cut_seconds": 1.4,
+        "music_file": "",             # optional royalty-free bed (e.g. YouTube Audio Library)
+        "music_volume": 0.12,
+    },
     "higgsfield": {
         "video_model": "seedance_2_0_mini",
         "video_params": {"duration": 5, "resolution": "720p", "generate_audio": False},
         "voice_model": "seed_audio",
         "voice_id": "1ad38ba4-9cc4-4f2f-9fde-b0fefdf67ae5",  # Gideon (Higgsfield preset)
+        "voice_params": {"speech_rate": 15, "loudness_rate": 10},  # punchier read
         "aspect_ratio": "9:16",
         "daily_credit_budget": 60,
         "est_credits_per_video": 5,

@@ -33,11 +33,20 @@ def _day_start() -> float:
     return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
+def _ai_beats(script: dict) -> list[int]:
+    return [i for i, b in enumerate(script["beats"]) if b.get("ai_effect_prompt")]
+
+
 def estimate(script: dict, hf: dict) -> float:
-    return len(script["segments"]) * float(hf["est_credits_per_video"]) + float(hf["est_credits_per_voiceover"])
+    return len(_ai_beats(script)) * float(hf["est_credits_per_video"]) + float(hf["est_credits_per_voiceover"])
+
+
+def narration_text(script: dict) -> str:
+    return " ".join([script.get("hook", "")] + [b["narration"] for b in script["beats"]]).strip()
 
 
 def queue_script(db, cfg, script: dict) -> str:
+    """Narration (always) + an AI effect clip only for beats that asked for one."""
     hf = cfg["higgsfield"]
     need = estimate(script, hf)
     spent = db.credits_queued_since(_day_start())
@@ -46,14 +55,14 @@ def queue_script(db, cfg, script: dict) -> str:
         raise BudgetExceeded(f"need {need} credits, {spent} already queued today, budget {budget}")
 
     parent = db.add_job("assemble", {"script": script}, status="waiting")
-    for i, seg in enumerate(script["segments"]):
+    for i in _ai_beats(script):
         db.add_job("hf_video", {
             "tool": "generate_video", "index": i, "est_credits": float(hf["est_credits_per_video"]),
-            "params": {"model": hf["video_model"], "prompt": sanitize(seg["visual_prompt"]),
+            "params": {"model": hf["video_model"], "prompt": sanitize(script["beats"][i]["ai_effect_prompt"]),
                        "aspect_ratio": hf["aspect_ratio"], **hf.get("video_params", {})},
         }, parent_id=parent)
-    narration = " ".join([script.get("hook", "")] + [s["narration"] for s in script["segments"]]).strip()
-    audio_params = {"model": hf.get("voice_model", "seed_audio"), "prompt": narration}
+    audio_params = {"model": hf.get("voice_model", "seed_audio"), "prompt": narration_text(script),
+                    **hf.get("voice_params", {})}
     if hf.get("voice_id"):
         audio_params.update(voice_type="preset", voice_id=hf["voice_id"])
     db.add_job("hf_audio", {"tool": "generate_audio", "est_credits": float(hf["est_credits_per_voiceover"]),

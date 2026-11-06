@@ -7,11 +7,14 @@ An automated pipeline for the GTA VI launch window (console release **Nov 19, 20
 2. **Clips** trending videos and streams into vertical 9:16 Shorts/TikToks. It finds highlights
    from YouTube "Most replayed" data, Twitch clip views, or audio-energy peaks, then adds a hook
    title, burned captions and a creator credit. It only clips sources you have rights to (see below).
-3. **Writes sourced news scripts** with Claude. Every claim cites a news item, and each segment is
-   labelled CONFIRMED, REPORTED or RUMOR based on its weakest source.
-4. **Generates the visuals with Higgsfield.** It queues 5-second AI clips plus a narration track
-   through your Higgsfield connector, then assembles them into finished shorts that carry an
-   "AI-GENERATED VISUALS" badge, a countdown and a source list.
+3. **Builds an official media library.** It downloads Rockstar's official GTA VI trailers from
+   their YouTube channel (video only), splits them into shots, and has Claude describe each shot.
+   You can add official screenshots by dropping them into `data/library/images/`.
+4. **Makes fast 15–25s news Shorts.** Claude writes a hook plus 3–5 beats from the news, citing a
+   source for every claim and tagging leaks as RUMOR, and picks the matching real shots. The editor
+   cuts every 1–2s with full-screen pans, flashes on each beat, big 1–3 word captions and the hook
+   on screen. Higgsfield makes the narration (Gideon voice), plus at most one AI effect shot.
+   Leaked footage is never used.
 5. **Publishes after you approve.** YouTube uploads use the synthetic-media disclosure flag.
    TikTok posts go through Higgsfield's TikTok connector with the AI-generated flag set.
 
@@ -92,7 +95,21 @@ goes into `licensed_creators`, and from then on their content is clipped automat
 Commentary mode is a fair-use judgement call, not a guarantee. Use it for real reaction or
 breakdown content with your own voice.
 
-## AI preview videos: what keeps them monetizable
+## Using Rockstar footage
+
+Rockstar's [video policy](https://support.rockstargames.com/articles/200153756/rockstar-games-video-policy)
+covers only **non-commercial** fan use, and it removes isolated cinematics. Monetized Shorts that
+use trailer footage therefore rely on fair use for news commentary, not on Rockstar's permission.
+The editor keeps each video commentary: short reframed shots under your narration, never a
+re-upload. **Trailer audio is always muted**, because the licensed songs trigger Content ID claims
+that send your ad revenue to the label. Leaked footage is never downloaded or shown.
+
+```bash
+gta6mm library sync      # download official trailers, cut into shots, tag them
+gta6mm library stats
+```
+
+## News Shorts: what keeps them monetizable
 
 - **Facts come from sources.** Scripts can only state what the fetched news items support.
   Leaks and Reddit claims are shown on screen as `RUMOR / UNCONFIRMED`, and every description

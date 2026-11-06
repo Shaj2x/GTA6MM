@@ -53,11 +53,25 @@ CREATE TABLE IF NOT EXISTS posts (
   created_at REAL,
   updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS shots (
+  id TEXT PRIMARY KEY,            -- "<asset>#<n>"
+  asset TEXT NOT NULL,            -- official video id or image file name
+  kind TEXT NOT NULL,             -- video | image
+  path TEXT NOT NULL,
+  start REAL DEFAULT 0,
+  end REAL DEFAULT 0,
+  thumb TEXT,
+  title TEXT,                     -- source title, e.g. "Grand Theft Auto VI Trailer 2"
+  description TEXT,               -- filled by the tagger
+  tags TEXT DEFAULT '[]',
+  usable INTEGER DEFAULT 1,       -- 0 = black frame / logo / text card
+  used_count INTEGER DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, kind);
 CREATE INDEX IF NOT EXISTS posts_status ON posts(status);
 """
 
-JSON_COLS = {"meta", "spec", "tags"}
+JSON_COLS = {"meta", "spec", "tags"}  # noqa: E501 (shots.tags is JSON too)
 
 
 class DB:
@@ -189,3 +203,37 @@ class DB:
 
     def get_post(self, post_id: str) -> dict | None:
         return self._row(self.conn.execute("SELECT * FROM posts WHERE id=?", (post_id,)).fetchone())
+
+    # -- shots (official media library) --------------------------------------
+    def add_shot(self, shot: dict) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO shots (id, asset, kind, path, start, end, thumb, title, description, "
+            "tags, usable, used_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT used_count FROM shots "
+            "WHERE id=?),0))",
+            (shot["id"], shot["asset"], shot["kind"], shot["path"], shot.get("start", 0), shot.get("end", 0),
+             shot.get("thumb"), shot.get("title"), shot.get("description"), json.dumps(shot.get("tags", [])),
+             int(shot.get("usable", 1)), shot["id"]))
+        self.conn.commit()
+
+    def has_asset(self, asset: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM shots WHERE asset=? LIMIT 1", (asset,)).fetchone() is not None
+
+    def shots(self, usable_only: bool = True, untagged: bool = False) -> list[dict]:
+        sql = "SELECT * FROM shots WHERE 1=1"
+        if usable_only:
+            sql += " AND usable=1"
+        if untagged:
+            sql += " AND description IS NULL"
+        return self._rows(sql + " ORDER BY used_count, asset, start")
+
+    def get_shot(self, shot_id: str) -> dict | None:
+        return self._row(self.conn.execute("SELECT * FROM shots WHERE id=?", (shot_id,)).fetchone())
+
+    def tag_shot(self, shot_id: str, description: str, tags: list[str], usable: bool) -> None:
+        self.conn.execute("UPDATE shots SET description=?, tags=?, usable=? WHERE id=?",
+                          (description, json.dumps(tags), int(usable), shot_id))
+        self.conn.commit()
+
+    def mark_used(self, shot_ids: list[str]) -> None:
+        self.conn.executemany("UPDATE shots SET used_count=used_count+1 WHERE id=?", [(i,) for i in shot_ids])
+        self.conn.commit()

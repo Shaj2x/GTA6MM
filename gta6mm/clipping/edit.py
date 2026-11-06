@@ -30,6 +30,8 @@ class Overlay:
     y: int = 1450
     size: int = 58
     box: bool = True
+    fg: tuple = (255, 255, 255, 255)
+    bg: tuple = (0, 0, 0, 140)
 
 
 @dataclass
@@ -46,6 +48,12 @@ class RenderSpec:
     max_seconds: float | None = None  # hard cap on how much source is used
     overlays: list[Overlay] = field(default_factory=list)
     source_volume: float = 1.0
+    layout: str = "fit"               # fit = blurred bg + centred source; none = source is already 9:16
+    flashes: list[float] = field(default_factory=list)  # white flash at these times (beat changes)
+    music: Path | None = None         # optional royalty-free bed, ducked under the voice
+    music_volume: float = 0.12
+    caption_y: int = 1230
+    caption_size: int = 64
 
 
 @dataclass
@@ -60,11 +68,15 @@ class _Layer:
 def text_image(lines: list[str], font_path: str, size: int, fg=(255, 255, 255, 255),
                bg=(0, 0, 0, 140), box: bool = True, stroke: int = 3, gap: int = 22) -> Image.Image:
     """Centered block of lines, each on its own rounded box."""
-    font = ImageFont.truetype(font_path, size)
     pad = 18 if box else 0
     probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    boxes = [probe.textbbox((0, 0), ln, font=font, stroke_width=stroke) for ln in lines]
-    widths = [b[2] - b[0] + 2 * pad for b in boxes]
+    while True:  # shrink until every line fits inside the frame with a margin
+        font = ImageFont.truetype(font_path, size)
+        boxes = [probe.textbbox((0, 0), ln, font=font, stroke_width=stroke) for ln in lines]
+        widths = [b[2] - b[0] + 2 * pad for b in boxes]
+        if max(widths, default=0) <= W - 60 or size <= 24:
+            break
+        size = int(size * 0.92)
     line_h = size + 2 * pad + stroke * 2
     img_w = min(W, max(widths) if widths else 1)
     img_h = max(1, len(lines) * line_h + (len(lines) - 1) * gap)
@@ -109,14 +121,14 @@ def _layers(spec: RenderSpec, total: float, tmp: Path) -> list[_Layer]:
     if spec.badge:
         add(text_image([spec.badge], spec.font, 36, fg=(255, 230, 0, 255), bg=(200, 20, 20, 220)), 40, 60)
     for o in spec.overlays:
-        add(text_image(ff.wrap(o.text, 28, 3), spec.font, o.size, box=o.box), center, o.y,
+        add(text_image(ff.wrap(o.text, max(10, int(1700 / o.size)), 3), spec.font, o.size, fg=o.fg, bg=o.bg, box=o.box), center, o.y,
             o.start, o.end if o.end is not None else (total if o.start is not None else None))
     if spec.credit:
         add(text_image([spec.credit], spec.font, 38, bg=(0, 0, 0, 150)), center, H - 160)
     if spec.captions_srt and Path(spec.captions_srt).exists():
         for a, b, txt in parse_srt(Path(spec.captions_srt)):
-            add(text_image(ff.wrap(txt, 24, 2), spec.font, 64, fg=(255, 255, 255, 255), box=False,
-                           stroke=5), center, 1230, a, b)
+            add(text_image(ff.wrap(txt, 18, 2), spec.font, spec.caption_size, fg=(255, 255, 255, 255),
+                           box=False, stroke=max(5, spec.caption_size // 12)), center, spec.caption_y, a, b)
     return layers
 
 
@@ -132,17 +144,24 @@ def build_command(spec: RenderSpec, tmp: Path) -> list[str]:
     if spec.voiceover:
         vo_idx = 1
         args += ["-i", str(spec.voiceover)]
+    music_idx = None
+    if spec.music:
+        music_idx = 1 + (1 if spec.voiceover else 0)
+        args += ["-stream_loop", "-1", "-i", str(spec.music)]
     layers = _layers(spec, total, tmp)
-    first_png = 1 + (1 if spec.voiceover else 0)
+    first_png = 1 + (1 if spec.voiceover else 0) + (1 if spec.music else 0)
     for layer in layers:
         args += ["-i", str(layer.png)]
 
-    v = [f"[0:v]fps={FPS},setsar=1" + (f",tpad=stop_mode=clone:stop_duration={pad:.3f}" if pad else "")
-         + ",split[a][b]",
-         f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=24:2,"
-         "eq=brightness=-0.18[bg]",
-         f"[b]scale={W}:-2[fg]",
-         "[bg][fg]overlay=(W-w)/2:(H-h)/2[v0]"]
+    tp = f",tpad=stop_mode=clone:stop_duration={pad:.3f}" if pad else ""
+    if spec.layout == "none":
+        v = [f"[0:v]fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1{tp}[v0]"]
+    else:
+        v = [f"[0:v]fps={FPS},setsar=1{tp},split[a][b]",
+             f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=24:2,"
+             "eq=brightness=-0.18[bg]",
+             f"[b]scale={W}:-2[fg]",
+             "[bg][fg]overlay=(W-w)/2:(H-h)/2[v0]"]
     cur = "v0"
     for i, layer in enumerate(layers):
         nxt = f"v{i + 1}"
@@ -151,10 +170,15 @@ def build_command(spec: RenderSpec, tmp: Path) -> list[str]:
             en = f":enable='between(t,{layer.start:.2f},{layer.end:.2f})'"
         v.append(f"[{cur}][{first_png + i}:v]overlay=x={layer.x}:y={layer.y}{en}[{nxt}]")
         cur = nxt
-    v.append(f"[{cur}]format=yuv420p[vout]")
+    flash = "".join(f",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.5:t=fill:enable='between(t,{f:.3f},{f + 0.07:.3f})'"
+                    for f in spec.flashes)
+    v.append(f"[{cur}]format=yuv420p{flash}[vout]")
 
     a = []
-    if ff.has_audio(spec.src):
+    if music_idx is not None:
+        a.append(f"[{music_idx}:a]aresample=48000,volume={spec.music_volume},atrim=0:{total:.3f},"
+                 f"apad=whole_dur={total:.3f}[sa]")
+    elif ff.has_audio(spec.src) and spec.source_volume > 0:
         a.append(f"[0:a]aresample=48000,volume={spec.source_volume},apad=whole_dur={total:.3f}[sa]")
     else:
         a.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{total:.3f}[sa]")

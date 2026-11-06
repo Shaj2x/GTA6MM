@@ -155,10 +155,14 @@ def attach_voiceover(db: DB, job_id: str, wav: str) -> None:
     db.update_job(job_id, spec=spec, status="pending")
 
 
-# --------------------------------------------------------------------------- AI news shorts
+# --------------------------------------------------------------------------- news shorts
 def news_cycle(db: DB, cfg, force: bool = False) -> str | None:
     from .scripting import writer
 
+    shots = db.shots(usable_only=True)
+    if not shots:
+        log("official media library is empty: run `gta6mm library sync` first")
+        return None
     since = time.time() - cfg["discovery"]["lookback_hours"] * 3600
     items = db.news(since)
     if not items:
@@ -169,7 +173,7 @@ def news_cycle(db: DB, cfg, force: bool = False) -> str | None:
     if not force and state.exists() and state.read_text() == digest:
         log("no new news since last script")
         return None
-    script = writer.write(items, cfg)
+    script = writer.write(items, shots, cfg)
     try:
         parent = hf.queue_script(db, cfg, script)
     except hf.BudgetExceeded as exc:
@@ -177,52 +181,39 @@ def news_cycle(db: DB, cfg, force: bool = False) -> str | None:
         return None
     state.write_text(digest)
     path = hf.export_pending(db, cfg)
-    log(f"queued AI short {parent} ({len(script['segments'])} segments) -> {path}")
+    n_ai = sum(1 for b in script["beats"] if b.get("ai_effect_prompt"))
+    log(f"queued short {parent}: {len(script['beats'])} beats, narration + {n_ai} AI effect -> {path}")
     return parent
 
 
-def _loop_to(video: Path, seconds: float, out: Path) -> Path:
-    ff.run(["-stream_loop", "-1", "-i", str(video), "-t", f"{seconds:.3f}", "-c:v", "libx264",
-            "-preset", "veryfast", "-crf", "18", "-an", str(out)])
-    return out
-
-
 def assemble_ready(db: DB, cfg) -> int:
+    from .clipping import timeline
+
     n = 0
     for parent in hf.ready(db):
         script = parent["spec"]["script"]
+        if "beats" not in script:  # made by the old all-AI format
+            db.update_job(parent["id"], status="cancelled", error="old all-AI format; regenerate with `news --force`")
+            continue
         kids = parent["children"]
-        vids = sorted((k for k in kids if k["kind"] == "hf_video"), key=lambda k: k["spec"]["index"])
+        ai_files = {k["spec"]["index"]: k["output"] for k in kids if k["kind"] == "hf_video"}
         audio = next((Path(k["output"]) for k in kids if k["kind"] == "hf_audio"), None)
-        work = cfg.data_dir / "ai" / parent["id"]
+        work = cfg.data_dir / "shorts" / parent["id"]
         try:
-            base = edit.concat([Path(v["output"]) for v in vids], work / "base.mp4")
-            vo_len = ff.duration(audio) if audio else 0
-            if vo_len > ff.duration(base) + 0.5:
-                base = _loop_to(base, vo_len, work / "base_loop.mp4")
-            total = max(ff.duration(base), vo_len)
-            # time each segment's caption by its share of narration words
-            words = [max(1, len(s["narration"].split())) for s in script["segments"]]
-            hook_w = len(script.get("hook", "").split())
-            t, overlays, unit = 0.0, [], total / (sum(words) + hook_w or 1)
-            t += hook_w * unit
-            for s, w in zip(script["segments"], words):
-                txt = s["on_screen_text"] + (f"  [{s['badge']}]" if s.get("badge") else "")
-                overlays.append(edit.Overlay(txt, t, t + w * unit))
-                t += w * unit
-            srt = captions.transcribe(audio, work / "vo.srt") if audio and cfg["clipping"].get("captions") else None
-            out = work / "final.mp4"
-            edit.render(edit.RenderSpec(
-                src=base, out=out, font=cfg["clipping"]["font"], title=script["title"],
-                badge="AI-GENERATED VISUALS", credit=metadata.countdown(cfg["release_date"]),
-                voiceover=audio, captions_srt=srt, overlays=overlays, source_volume=0.0))
+            credit = f"Footage: Rockstar Games \u00b7 {metadata.countdown(cfg['release_date'])}"
+            out, used_ai = timeline.build(db, cfg, script, audio, ai_files, work, credit)
             db.update_job(parent["id"], status="done", output=str(out))
-            _make_posts(db, cfg, parent["id"], str(out), metadata.for_news(script, cfg))
+            meta = metadata.for_news(script, cfg)
+            meta["synthetic"] = used_ai
+            if used_ai:
+                meta["description"] += "\nOne stylised effect shot is AI-generated."
+            _make_posts(db, cfg, parent["id"], str(out), meta)
             n += 1
+            log(f"short ready: {out} ({ff.duration(out):.1f}s)")
         except Exception as exc:
             db.update_job(parent["id"], status="failed", error=str(exc)[-1500:])
             log(f"assemble {parent['id']} failed: {exc}")
-    log(f"assembled {n} AI shorts")
+    log(f"assembled {n} shorts")
     return n
 
 
@@ -260,7 +251,21 @@ def publish(db: DB, cfg) -> dict:
 
 
 # --------------------------------------------------------------------------- loop
+def library_sync(db: DB, cfg, every_hours: float = 12) -> None:
+    """Pull new official Rockstar media (twice a day) and describe new shots."""
+    from .library import media, tagger
+
+    stamp = cfg.data_dir / "last_library_sync"
+    if stamp.exists() and time.time() - stamp.stat().st_mtime < every_hours * 3600:
+        return
+    res = media.sync(db, cfg, log=log)
+    tagger.tag_all(db, cfg, log=log)
+    stamp.write_text(str(time.time()))
+    log(f"library sync {res}")
+
+
 def cycle(db: DB, cfg) -> None:
+    library_sync(db, cfg)
     discover(db, cfg)
     outreach(db, cfg)
     plan_clips(db, cfg)

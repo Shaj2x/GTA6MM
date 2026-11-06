@@ -99,22 +99,43 @@ def _items():
     ]
 
 
-def test_validate_sets_status_from_weakest_source_and_drops_unsourced():
-    script = {"title": "t", "hook": "h", "description": "", "tags": [], "segments": [
-        {"narration": "a", "on_screen_text": "a", "visual_prompt": "v", "claim_ids": ["n1"], "is_factual": True},
-        {"narration": "b", "on_screen_text": "b", "visual_prompt": "v", "claim_ids": ["n1", "n3"], "is_factual": True},
-        {"narration": "c", "on_screen_text": "c", "visual_prompt": "v", "claim_ids": ["bogus"], "is_factual": True},
-        {"narration": "d", "on_screen_text": "d", "visual_prompt": "v", "claim_ids": [], "is_factual": False},
+SHOTS = [{"id": f"t#{i}"} for i in range(6)]
+
+
+def test_validate_sets_status_drops_unsourced_and_caps_ai():
+    script = {"title": "t", "hook": "h", "hook_text": "H", "description": "", "tags": [], "beats": [
+        {"narration": "a", "shot_ids": ["t#0", "nope"], "ai_effect_prompt": None, "claim_ids": ["n1"], "is_factual": True},
+        {"narration": "b", "shot_ids": ["t#0", "t#1"], "ai_effect_prompt": "neon map", "claim_ids": ["n1", "n3"], "is_factual": True},
+        {"narration": "c", "shot_ids": [], "ai_effect_prompt": None, "claim_ids": ["bogus"], "is_factual": True},
+        {"narration": "d", "shot_ids": ["t#2"], "ai_effect_prompt": "second ai", "claim_ids": [], "is_factual": False},
     ]}
-    out = writer.validate(script, _items())
-    assert [s["status"] for s in out["segments"]] == ["confirmed", "rumor", "opinion"]
-    assert out["segments"][1]["badge"] == "RUMOR / UNCONFIRMED"
+    out = writer.validate(script, _items(), SHOTS, max_ai_clips=1)
+    assert [b["status"] for b in out["beats"]] == ["confirmed", "rumor", "opinion"]
+    assert out["beats"][0]["shot_ids"] == ["t#0"]            # unknown id dropped
+    assert out["beats"][1]["shot_ids"] == ["t#1"]            # no shot reused within a video
+    assert out["beats"][1]["badge"] == "RUMOR"
+    assert out["beats"][2]["ai_effect_prompt"] is None       # only one AI effect allowed
     assert out["has_rumor"] and {s["id"] for s in out["sources"]} == {"n1", "n3"}
 
 
 def test_template_fallback_validates():
-    out = writer.validate(writer.template(_items()), _items())
-    assert out["segments"][0]["status"] == "confirmed"
+    out = writer.validate(writer.template(_items(), SHOTS), _items(), SHOTS)
+    assert out["beats"][0]["status"] == "confirmed"
+    assert all(b["ai_effect_prompt"] is None for b in out["beats"])
+
+
+def test_split_shots_and_section_times():
+    from gta6mm.clipping import timeline
+    from gta6mm.library import media
+    shots = media.split_shots([1.0, 1.3, 9.0], 10.0, 0.7, 2.5)
+    assert shots[0] == (0.0, 1.0) and (1.0, 1.3) not in shots       # too-short shot dropped
+    assert shots[1:4] == [(1.3, 3.8), (3.8, 6.3), (6.3, 8.8)]          # long shot capped at 3 windows
+    secs = ["hook words here", "beat one two", "beat three"]
+    t = timeline.section_times(secs, None, 8.0)
+    assert t[0] == (0.0, 3.0) and t[2][1] == 8.0
+    ws = [(i * 1.0, i * 1.0 + .9, "w") for i in range(8)]
+    t2 = timeline.section_times(secs, ws, 8.0)
+    assert t2[1][0] == 3.0
 
 
 # ---------------------------------------------------------------- prompts + metadata

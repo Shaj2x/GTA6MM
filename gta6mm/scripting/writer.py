@@ -1,7 +1,11 @@
-"""News items -> a sourced 30-45s short-form script.
+"""News items + official shot library -> a sourced, fast 15-25s Short script.
+
+Structure that retains on Shorts/TikTok:
+  hook (<=1.5s, bold claim or question, also on screen) -> 3-5 quick beats, each
+  matched to real official shots -> payoff line that loops back to the hook.
 
 Every factual line must cite the ids of the news items that support it. The
-validator then sets each segment's status from the *weakest* source it cites:
+validator sets each beat's status from the *weakest* source it cites:
 official -> CONFIRMED, press -> REPORTED, community -> RUMOR. Uncited factual
 claims are dropped, so the channel never states a leak or guess as fact.
 """
@@ -13,29 +17,30 @@ from typing import Any
 from ..discovery.news import TIER_RANK
 
 STATUS_BY_TIER = {"official": "confirmed", "press": "reported", "community": "rumor"}
-BADGE = {"confirmed": "", "reported": "REPORTED", "rumor": "RUMOR / UNCONFIRMED"}
+BADGE = {"confirmed": "", "reported": "", "rumor": "RUMOR"}
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["title", "hook", "segments", "description", "tags"],
+    "required": ["title", "hook", "hook_text", "beats", "description", "tags"],
     "properties": {
-        "title": {"type": "string", "description": "<=70 chars, curiosity-driven, no clickbait lies"},
-        "hook": {"type": "string", "description": "first 2 seconds of narration"},
-        "segments": {
+        "title": {"type": "string", "description": "<=60 chars, curiosity gap, no false claims"},
+        "hook": {"type": "string", "description": "first spoken line, <=9 words, a bold claim or question"},
+        "hook_text": {"type": "string", "description": "on-screen hook, <=5 words, ALL CAPS"},
+        "beats": {
             "type": "array",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["narration", "on_screen_text", "visual_prompt", "claim_ids", "is_factual"],
+                "required": ["narration", "shot_ids", "ai_effect_prompt", "claim_ids", "is_factual"],
                 "properties": {
-                    "narration": {"type": "string"},
-                    "on_screen_text": {"type": "string", "description": "<=6 words"},
-                    "visual_prompt": {"type": "string",
-                                      "description": "original cinematic scene, no game logos/characters"},
+                    "narration": {"type": "string", "description": "6-14 words, punchy, spoken"},
+                    "shot_ids": {"type": "array", "items": {"type": "string"},
+                                 "description": "1-3 library shot ids that match this line"},
+                    "ai_effect_prompt": {"type": ["string", "null"],
+                                         "description": "rare: a stylised effect shot only when no real shot fits"},
                     "claim_ids": {"type": "array", "items": {"type": "string"}},
-                    "is_factual": {"type": "boolean",
-                                   "description": "true if narration asserts something about the game"},
+                    "is_factual": {"type": "boolean"},
                 },
             },
         },
@@ -44,35 +49,49 @@ SCHEMA: dict[str, Any] = {
     },
 }
 
-SYSTEM = """You write scripts for a GTA 6 news Shorts/TikTok channel ahead of the game's launch.
+SYSTEM = """You write viral YouTube Shorts / TikTok scripts for a GTA 6 news channel, weeks before launch.
 
-Rules:
-- Use ONLY the news items provided. Every segment that states anything about the game
-  (features, map, dates, price, characters, mechanics) sets is_factual=true and lists
-  the ids of the items that support it in claim_ids. Never invent details.
-- Items marked community are rumours: phrase them as "reportedly", "rumour says",
-  "fans spotted" - never as fact.
-- 4-6 segments. Each segment plays over one 5-second AI clip, so keep each
-  narration to 10-14 words. Hook (<=10 words) comes first.
-- visual_prompt describes an ORIGINAL cinematic scene for an AI video model: a sunny,
-  neon-lit, Miami-style coastal city, swamps, highways, beaches, sports cars, boats,
-  nightlife. Do NOT mention GTA, Rockstar, Vice City, Leonida, game logos, HUDs, or the
-  game's named characters, and never describe a real person's likeness.
-- Title and description must not claim the visuals are real gameplay.
+Format (15-25 seconds total, 45-65 spoken words):
+- hook: the first spoken line. A bold, specific claim or question that creates a curiosity gap
+  ("Rockstar just confirmed something huge about the swamps"). No greetings, no "hey guys".
+- hook_text: 2-5 word ALL CAPS on-screen version of the hook.
+- 3-5 beats, each 6-14 words, one idea per beat, fast and conversational. Concrete details beat
+  adjectives. The last beat pays off the hook and ends on a question or line that makes the
+  video loop naturally into the hook.
+- title: <=60 chars, curiosity-driven, true.
+
+Facts:
+- Use ONLY the provided news items. Any beat stating something about the game sets
+  is_factual=true and cites the supporting item ids in claim_ids. Never invent details.
+- Items marked community are rumours or leaks: say "reportedly" / "rumour has it" and never
+  present them as fact.
+
+Visuals:
+- For each beat pick 1-3 shot_ids from the official shot library whose descriptions match the
+  narration. Prefer variety; don't reuse a shot within the video.
+- ai_effect_prompt is null for almost every beat. Use it at most once, only for a stylised
+  transition/effect shot when no real shot fits (e.g. "glowing neon map of a coastal state
+  zooming in"). Never describe game logos, named characters or real people in it.
 """
 
 
 def _fmt_items(items: list[dict]) -> str:
+    return "\n".join(json.dumps({
+        "id": it["id"], "tier": (it.get("meta") or {}).get("tier", "community"), "source": it.get("channel"),
+        "title": it.get("title"), "summary": (it.get("meta") or {}).get("summary", "")[:700]})
+        for it in items)
+
+
+def _fmt_shots(shots: list[dict], limit: int = 160) -> str:
     rows = []
-    for it in items:
-        m = it.get("meta") or {}
-        rows.append(json.dumps({"id": it["id"], "tier": m.get("tier", "community"),
-                                "source": it.get("channel"), "title": it.get("title"),
-                                "summary": m.get("summary", "")[:700], "url": it.get("url")}))
+    for s in shots[:limit]:
+        desc = s.get("description") or f"{s.get('title')} at {s.get('start', 0):.0f}s"
+        tags = ", ".join(s.get("tags") or [])
+        rows.append(f"{s['id']}: {desc}" + (f" [{tags}]" if tags else ""))
     return "\n".join(rows)
 
 
-def generate(items: list[dict], model: str = "claude-opus-5-5", effort: str = "medium") -> dict:
+def generate(items: list[dict], shots: list[dict], model: str, effort: str) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -84,7 +103,9 @@ def generate(items: list[dict], model: str = "claude-opus-5-5", effort: str = "m
         thinking={"type": "adaptive"},
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}},
         system=SYSTEM,
-        messages=[{"role": "user", "content": "News items (JSON lines):\n" + _fmt_items(items)}],
+        messages=[{"role": "user", "content":
+                   "News items (JSON lines):\n" + _fmt_items(items)
+                   + "\n\nOfficial shot library (id: description):\n" + (_fmt_shots(shots) or "(empty)")}],
     )
     if resp.stop_reason == "refusal":
         raise RuntimeError("script request was declined")
@@ -94,55 +115,59 @@ def generate(items: list[dict], model: str = "claude-opus-5-5", effort: str = "m
     return json.loads(text)
 
 
-def template(items: list[dict]) -> dict:
-    """No-API fallback: one segment per headline, strongest sources first."""
-    items = sorted(items, key=lambda i: -TIER_RANK.get((i.get("meta") or {}).get("tier"), 0))[:5]
-    scenes = ["aerial shot over a neon-lit coastal city at sunset, palm trees, highway traffic",
-              "sports car speeding along an oceanfront boulevard at night, neon reflections",
-              "airboat racing through misty everglades-style swamp at golden hour",
-              "crowded beach boardwalk, pastel art-deco hotels, handheld cinematic shot",
-              "downtown skyline at night with rain-slick streets and police lights in the distance"]
-    segs = [{"narration": f"{i.get('channel')}: {i.get('title')}.",
-             "on_screen_text": " ".join((i.get("title") or "").split()[:6]),
-             "visual_prompt": scenes[n % len(scenes)], "claim_ids": [i["id"]], "is_factual": True}
-            for n, i in enumerate(items)]
-    return {"title": "GTA 6 news you missed today", "hook": "Here's everything new on GTA 6 today.",
-            "segments": segs, "description": "", "tags": []}
+def template(items: list[dict], shots: list[dict]) -> dict:
+    """No-API fallback: three strongest headlines over library shots in order."""
+    items = sorted(items, key=lambda i: -TIER_RANK.get((i.get("meta") or {}).get("tier"), 0))[:3]
+    ids = [s["id"] for s in shots]
+    beats = [{"narration": (i.get("title") or "").rstrip(".") + ".", "shot_ids": ids[n * 2:n * 2 + 2],
+              "ai_effect_prompt": None, "claim_ids": [i["id"]], "is_factual": True}
+             for n, i in enumerate(items)]
+    return {"title": "GTA 6 news you missed", "hook": "Three GTA 6 updates you missed this week.",
+            "hook_text": "YOU MISSED THIS", "beats": beats, "description": "", "tags": []}
 
 
-def validate(script: dict, items: list[dict]) -> dict:
-    """Attach status/badges; drop factual segments without valid sources."""
+def validate(script: dict, items: list[dict], shots: list[dict] | None = None,
+             max_ai_clips: int = 1) -> dict:
+    """Attach status/badges; drop unsourced factual beats, unknown shots and extra AI effects."""
     by_id = {i["id"]: i for i in items}
-    kept, sources = [], {}
-    for seg in script.get("segments", []):
-        ids = [c for c in seg.get("claim_ids", []) if c in by_id]
-        if seg.get("is_factual") and not ids:
+    shot_ids = {s["id"] for s in (shots or [])}
+    kept, sources, ai_left, used = [], {}, max_ai_clips, set()
+    for beat in script.get("beats", []):
+        ids = [c for c in beat.get("claim_ids", []) if c in by_id]
+        if beat.get("is_factual") and not ids:
             continue
         if ids:
             tiers = [(by_id[c].get("meta") or {}).get("tier", "community") for c in ids]
             weakest = min(tiers, key=lambda t: TIER_RANK.get(t, 0))
-            seg["status"] = STATUS_BY_TIER.get(weakest, "rumor")
+            beat["status"] = STATUS_BY_TIER.get(weakest, "rumor")
             for c in ids:
                 sources[c] = by_id[c]
         else:
-            seg["status"] = "opinion"
-        seg["badge"] = BADGE.get(seg["status"], "")
-        seg["claim_ids"] = ids
-        kept.append(seg)
+            beat["status"] = "opinion"
+        beat["badge"] = BADGE.get(beat["status"], "")
+        beat["claim_ids"] = ids
+        beat["shot_ids"] = [s for s in beat.get("shot_ids", []) if s in shot_ids and s not in used]
+        used.update(beat["shot_ids"])
+        if beat.get("ai_effect_prompt"):
+            if ai_left > 0:
+                ai_left -= 1
+            else:
+                beat["ai_effect_prompt"] = None
+        kept.append(beat)
     if not kept:
-        raise ValueError("no sourced segments left after validation")
-    script["segments"] = kept
+        raise ValueError("no sourced beats left after validation")
+    script["beats"] = kept
     script["sources"] = [{"id": s["id"], "title": s.get("title"), "url": s.get("url"),
                           "tier": (s.get("meta") or {}).get("tier")} for s in sources.values()]
-    script["has_rumor"] = any(s["status"] == "rumor" for s in kept)
+    script["has_rumor"] = any(b["status"] == "rumor" for b in kept)
     return script
 
 
-def write(items: list[dict], cfg) -> dict:
+def write(items: list[dict], shots: list[dict], cfg) -> dict:
     sc = cfg["scripting"]
     items = items[: sc.get("max_items", 12)]
     if cfg.env("ANTHROPIC_API_KEY") or cfg.env("ANTHROPIC_AUTH_TOKEN"):
-        raw = generate(items, sc["model"], sc.get("effort", "medium"))
+        raw = generate(items, shots, sc["model"], sc.get("effort", "medium"))
     else:
-        raw = template(items)
-    return validate(raw, items)
+        raw = template(items, shots)
+    return validate(raw, items, shots, cfg["shorts"]["max_ai_clips"])

@@ -5,17 +5,18 @@ description: Render queued GTA 6 news shorts through the Higgsfield connector an
 You are the render worker for the gta6mm pipeline. Higgsfield is only reachable
 through the Higgsfield MCP connector, so you run the jobs the Python side queued.
 
-1. Run `python -m gta6mm.cli hf-pending`. It prints a JSON list of jobs with
+1. Run `python -m gta6mm.cli hf-pending` (or `--brief` for one line per job). It prints a JSON list of jobs with
    `job_id`, `tool` (`generate_video` or `generate_audio`), `params`, `est_credits`
    and, for jobs already submitted, `higgsfield_job_id`. If it is empty, say so and stop.
 2. Call `mcp__Higgsfield__balance`. Add up `est_credits` of the `pending` jobs. If
    the balance is lower than that, stop and tell the user how many credits are
    needed; do not submit a partial set.
 3. For jobs with status `pending`:
-   - Videos: submit them with `mcp__Higgsfield__generate_video_batch` (up to 12 per
-     call), passing each job's `params` exactly as given. Pass `use_unlim: false`
+   - Videos (rare: at most one AI effect shot per Short): submit with
+     `mcp__Higgsfield__generate_video_batch`, passing each job's `params` exactly as given.
+     The Basic plan renders about 3 videos at once; on a 429 rate limit, wait and resubmit. Pass `use_unlim: false`
      unless the user has said to use unlimited generations.
-   - Audio: if `params.voice_id` is missing, call `mcp__Higgsfield__list_voices` once,
+   - Audio: pass `params` as given (they include voice_id and speech_rate). If `voice_id` is missing, call `mcp__Higgsfield__list_voices` once,
      pick an energetic English male or female preset suited to gaming news, and use
      that `voice_type`/`voice_id` for every audio job in this run. Submit with
      `mcp__Higgsfield__generate_audio_batch` (or `generate_audio`).

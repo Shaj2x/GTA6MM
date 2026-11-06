@@ -44,53 +44,97 @@ def add_news(db, n=3):
                           "meta": {"tier": ["official", "press", "community"][i % 3], "summary": "s"}})
 
 
-def test_news_to_higgsfield_to_assembled_post(env):
+def mk_trailer(path: Path):
+    """Fake 'official trailer': 4 visually distinct 2s shots -> 3 scene cuts."""
+    srcs = ["testsrc2", "smptebars", "testsrc", "rgbtestsrc"]
+    args = ["ffmpeg", "-v", "error", "-y"]
+    for s in srcs:
+        args += ["-f", "lavfi", "-i", f"{s}=size=1920x1080:rate=30:duration=2"]
+    fc = "".join(f"[{i}:v]format=yuv420p,setsar=1[v{i}];" for i in range(4))
+    fc += "".join(f"[v{i}]" for i in range(4)) + "concat=n=4:v=1:a=0[v]"
+    subprocess.run(args + ["-filter_complex", fc, "-map", "[v]", "-c:v", "libx264", str(path)], check=True)
+    return path
+
+
+@pytest.fixture
+def lib(env):
+    from gta6mm.library import media
     cfg, db, tmp = env
+    trailer = mk_trailer(media.lib_dir(cfg) / "videos" / "trailer2.mp4")
+    n = media.index_video(db, cfg, trailer, "trailer2", "Grand Theft Auto VI Trailer 2")
+    assert n >= 4
+    return env
+
+
+def complete_all(db, cfg, tmp, voice_seconds=8):
+    for p in hf.pending(db):
+        f = (mk_video(tmp / f"{p['job_id']}.mp4", 5, size="720x1280", audio=False)
+             if p["tool"] == "generate_video" else mk_audio(tmp / f"{p['job_id']}.mp3", voice_seconds))
+        hf.complete(db, cfg, p["job_id"], file=str(f))
+    pipeline.assemble_ready(db, cfg)   # what `gta6mm hf-complete` runs
+
+
+def test_news_short_uses_real_footage_and_is_short(lib):
+    cfg, db, tmp = lib
     add_news(db, 3)
     parent = pipeline.news_cycle(db, cfg)
     assert parent
     pend = hf.pending(db)
-    assert {p["tool"] for p in pend} == {"generate_video", "generate_audio"}
-    assert all("GTA" not in p["params"]["prompt"] for p in pend if p["tool"] == "generate_video")
-    assert json.loads((tmp / "data/higgsfield/pending.json").read_text())["count"] == len(pend)
-    # same news again -> no duplicate script
-    assert pipeline.news_cycle(db, cfg) is None
-
-    # agent reports results (local files instead of URLs)
-    for p in pend:
-        hf.mark_submitted(db, p["job_id"], "hf-" + p["job_id"])
-        if p["tool"] == "generate_video":
-            f = mk_video(tmp / f"{p['job_id']}.mp4", 2, size="720x1280", audio=False)
-        else:
-            f = mk_audio(tmp / f"{p['job_id']}.mp3", 7)
-        hf.complete(db, cfg, p["job_id"], file=str(f))
-    assert pipeline.assemble_ready(db, cfg) == 1
+    assert [p["tool"] for p in pend] == ["generate_audio"]           # no AI video by default
+    assert pend[0]["params"]["speech_rate"] == 15
+    assert pipeline.news_cycle(db, cfg) is None                       # same news -> no duplicate
+    complete_all(db, cfg, tmp, voice_seconds=8)
     final = Path(db.get_job(parent)["output"])
-    info = ff.probe(final)
-    v = next(s for s in info["streams"] if s["codec_type"] == "video")
+    v = next(s for s in ff.probe(final)["streams"] if s["codec_type"] == "video")
     assert (v["width"], v["height"]) == (1080, 1920)
-    assert abs(ff.duration(final) - 7) < 0.6       # looped visuals to cover the narration
+    assert abs(ff.duration(final) - 8.35) < 0.5                       # length follows the narration
     posts = db.posts(status="awaiting_approval")
     assert {p["platform"] for p in posts} == {"youtube", "tiktok"}
-    assert all(p["synthetic"] == 1 for p in posts)
-    assert "AI-generated" in posts[0]["description"] and "Sources:" in posts[0]["description"]
+    assert all(p["synthetic"] == 0 for p in posts)
+    assert "official Rockstar Games trailers" in posts[0]["description"]
+    assert sum(s["used_count"] for s in db.shots()) >= 5              # fast cuts over many shots
 
 
-def test_budget_guard(env):
+def test_one_ai_effect_cut_is_flagged(lib):
+    from gta6mm.scripting import writer
+    cfg, db, tmp = lib
+    add_news(db, 2)
+    items = db.news(0)
+    shots = db.shots()
+    script = writer.validate({"title": "t", "hook": "Rockstar just changed everything", "hook_text": "BIG NEWS",
+        "description": "", "tags": [], "beats": [
+            {"narration": "The swamps are huge and full of gators", "shot_ids": [shots[0]["id"]],
+             "ai_effect_prompt": "neon map of a coastal state zooming in", "claim_ids": [items[0]["id"]], "is_factual": True},
+            {"narration": "And it all lands in thirteen days", "shot_ids": [shots[1]["id"]],
+             "ai_effect_prompt": None, "claim_ids": [items[1]["id"]], "is_factual": True}]}, items, shots)
+    parent = hf.queue_script(db, cfg, script)
+    assert sorted(p["tool"] for p in hf.pending(db)) == ["generate_audio", "generate_video"]
+    complete_all(db, cfg, tmp, voice_seconds=6)
+    assert db.get_job(parent)["status"] == "done"
+    assert all(p["synthetic"] == 1 for p in db.posts())
+
+
+def test_empty_library_blocks_news(env):
     cfg, db, _ = env
-    add_news(db, 5)  # 5 segments * 5 + 1.5 = 26.5 credits, budget 30
-    assert pipeline.news_cycle(db, cfg)
+    add_news(db, 3)
+    assert pipeline.news_cycle(db, cfg) is None
+
+
+def test_budget_guard(lib):
+    cfg, db, _ = lib
+    cfg["higgsfield"]["daily_credit_budget"] = 2
+    add_news(db, 3)
+    assert pipeline.news_cycle(db, cfg)               # 1.5 credits of narration fits
     db.upsert_source({"id": "news:new", "platform": "news", "kind": "article", "url": "https://x/new",
                       "title": "GTA 6 more", "channel": "P", "published_at": 9e12, "meta": {"tier": "press"}})
-    assert pipeline.news_cycle(db, cfg) is None  # second short would exceed the daily budget
+    assert pipeline.news_cycle(db, cfg) is None        # a second one would exceed the budget
 
 
-def test_failed_segment_fails_parent(env):
-    cfg, db, _ = env
+def test_failed_segment_fails_parent(lib):
+    cfg, db, _ = lib
     add_news(db, 2)
     parent = pipeline.news_cycle(db, cfg)
-    first = hf.pending(db)[0]
-    hf.complete(db, cfg, first["job_id"], error="nsfw filter")
+    hf.complete(db, cfg, hf.pending(db)[0]["job_id"], error="provider error")
     assert db.get_job(parent)["status"] == "failed"
     assert hf.ready(db) == []
 
@@ -148,26 +192,21 @@ def test_outreach_lists_blocked_creators(env):
     assert out[0]["channel"] == "BigCreator" and "revenue share" in out[0]["message"]
 
 
-def test_cancel_frees_budget(env):
-    cfg, db, _ = env
+def test_cancel_frees_budget(lib):
+    cfg, db, _ = lib
     add_news(db, 5)
     parent = pipeline.news_cycle(db, cfg)
     assert db.credits_queued_since(0) > 0
-    assert hf.cancel(db, parent) == 6
+    assert hf.cancel(db, parent) == 1
     assert db.credits_queued_since(0) == 0 and hf.pending(db) == []
 
 
-def test_failed_assemble_is_retried_and_caption_errors_dont_block(env, monkeypatch):
-    cfg, db, tmp = env
-    cfg["clipping"]["captions"] = True
+def test_failed_assemble_is_retried_and_caption_errors_dont_block(lib, monkeypatch):
+    cfg, db, tmp = lib
     add_news(db, 2)
     parent = pipeline.news_cycle(db, cfg)
-    for p in hf.pending(db):
-        f = (mk_video(tmp / f"{p['job_id']}.mp4", 2, size="720x1280", audio=False)
-             if p["tool"] == "generate_video" else mk_audio(tmp / f"{p['job_id']}.mp3", 4))
-        hf.complete(db, cfg, p["job_id"], file=str(f))
-    db.update_job(parent, status="failed", error="old caption crash")  # state the user was left in
+    db.update_job(parent, status="failed", error="earlier crash")
     from gta6mm.clipping import captions
-    monkeypatch.setattr(captions, "transcribe", lambda *a, **k: None)  # captions unavailable
-    assert pipeline.assemble_ready(db, cfg) == 1
+    monkeypatch.setattr(captions, "words", lambda *a, **k: None)   # whisper unavailable
+    complete_all(db, cfg, tmp, voice_seconds=4)
     assert db.get_job(parent)["status"] == "done"

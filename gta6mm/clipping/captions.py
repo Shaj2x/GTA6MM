@@ -30,7 +30,8 @@ def chunk_words(words: list[tuple[float, float, str]], max_words: int = 4):
     return out
 
 
-def transcribe(media: Path, out_srt: Path, start: float = 0.0, length: float | None = None) -> Path | None:
+def words(media: Path) -> list[tuple[float, float, str]] | None:
+    """Word-level timestamps for a speech file, or None if whisper isn't available."""
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -47,17 +48,21 @@ def transcribe(media: Path, out_srt: Path, start: float = 0.0, length: float | N
         audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
         model = WhisperModel("small", compute_type="int8")
         segments, _ = model.transcribe(audio, word_timestamps=True, vad_filter=True)
-        segments = list(segments)
+        out = [(w.start, w.end, w.word) for seg in segments for w in (seg.words or [])]
     except Exception as exc:
         print(f"[captions] skipped: {exc}")
         return None
-    words = []
-    for seg in segments:
-        for w in seg.words or []:
-            if w.end < start or (length and w.start > start + length):
-                continue
-            words.append((max(0.0, w.start - start), w.end - start, w.word))
-    if not words:
+    return out or None
+
+
+def transcribe(media: Path, out_srt: Path, start: float = 0.0, length: float | None = None,
+               max_words: int = 4) -> Path | None:
+    ws = words(media)
+    if not ws:
         return None
-    out_srt.write_text(to_srt(chunk_words(words)))
+    ws = [(max(0.0, a - start), b - start, w) for a, b, w in ws
+          if b >= start and not (length and a > start + length)]
+    if not ws:
+        return None
+    out_srt.write_text(to_srt(chunk_words(ws, max_words)))
     return out_srt

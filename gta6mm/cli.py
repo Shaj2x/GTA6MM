@@ -30,7 +30,10 @@ def main(argv: list[str] | None = None) -> int:
     n = sub.add_parser("news", help="write a sourced script and queue Higgsfield jobs")
     n.add_argument("--force", action="store_true")
 
-    sub.add_parser("hf-pending", help="print Higgsfield jobs for the agent")
+    lib = sub.add_parser("library", help="official Rockstar media library")
+    lib.add_argument("action", choices=["sync", "tag", "stats"])
+    hp = sub.add_parser("hf-pending", help="print Higgsfield jobs for the agent")
+    hp.add_argument("--brief", action="store_true", help="one line per job")
     s = sub.add_parser("hf-submitted", help="record the Higgsfield job id for a queued job")
     s.add_argument("job_id")
     s.add_argument("higgsfield_job_id")
@@ -78,9 +81,29 @@ def main(argv: list[str] | None = None) -> int:
         pipeline.process_clips(db, cfg)
     elif a.cmd == "news":
         pipeline.news_cycle(db, cfg, force=a.force)
+    elif a.cmd == "library":
+        from .library import media, tagger
+        if a.action == "sync":
+            print(media.sync(db, cfg, log=pipeline.log))
+            tagger.tag_all(db, cfg, log=pipeline.log)
+        elif a.action == "tag":
+            tagger.tag_all(db, cfg, log=pipeline.log)
+        all_shots = db.shots(usable_only=False)
+        _print({"assets": len({s["asset"] for s in all_shots}), "shots": len(all_shots),
+                "usable": sum(s["usable"] for s in all_shots),
+                "tagged": sum(1 for s in all_shots if s["description"]),
+                "folder_for_screenshots": str(media.lib_dir(cfg) / "images")})
     elif a.cmd == "hf-pending":
         hf.export_pending(db, cfg)
-        _print(hf.pending(db))
+        jobs = hf.pending(db)
+        if a.brief:
+            for j in jobs:
+                p = j["params"]
+                print(f"{j['job_id']}  {j['tool']}  {(p.get('prompt') or '')[:90]}")
+            if not jobs:
+                print("(nothing pending)")
+        else:
+            _print(jobs)
     elif a.cmd == "hf-submitted":
         hf.mark_submitted(db, a.job_id, a.higgsfield_job_id)
     elif a.cmd == "hf-complete":
