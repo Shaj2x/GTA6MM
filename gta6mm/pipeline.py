@@ -16,6 +16,9 @@ from .higgsfield import jobs as hf
 from .publish import metadata
 
 
+PLATFORM_NAMES = {"twitch": "Twitch", "youtube": "YouTube", "tiktok": "TikTok", "kick": "Kick"}
+
+
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -120,16 +123,18 @@ def process_clip_job(db: DB, cfg, job: dict) -> list[str]:
         outs = []
         cap = decision.constraints.get("max_source_seconds")
         vo = Path(spec["voiceover"]) if spec.get("voiceover") else None
-        platform = {"twitch": "Twitch", "youtube": "YouTube"}.get(src["platform"], src["platform"])
+        platform = PLATFORM_NAMES.get(src["platform"], src["platform"])
         for i, (f, start, length) in enumerate(parts):
             use = min(length, cap) if cap else length
             srt = captions.transcribe(f, work / f"{i}.srt", start, use) if c.get("captions") else None
             out = work / f"clip_{i}.mp4"
+            hook = edit.Overlay(_hook(src["title"]).upper(), 0.0, 3.0, y=300, size=76,
+                                fg=(255, 255, 255, 255), bg=(220, 20, 40, 235))
             edit.render(edit.RenderSpec(
-                src=f, out=out, font=c["font"], title=_hook(src["title"]),
+                src=f, out=out, font=c["font"], overlays=[hook],
                 credit=f"{decision.attribution or '@' + str(src['channel'])} on {platform}",
                 voiceover=vo, captions_srt=srt, start=start, max_seconds=use,
-                source_volume=0.6 if vo else 1.0))
+                source_volume=0.6 if vo else 1.0, caption_size=80, caption_y=1260))
             outs.append(str(out))
         db.update_job(job["id"], status="done", output=json.dumps(outs))
         meta = metadata.for_clip(src, decision, cfg, _hook(src["title"]))
@@ -146,6 +151,54 @@ def process_clips(db: DB, cfg) -> int:
         n += len(process_clip_job(db, cfg, job))
     log(f"rendered {n} clips")
     return n
+
+
+def platform_of(info: dict) -> str:
+    key = (info.get("extractor_key") or info.get("extractor") or "").lower()
+    for name in ("youtube", "twitch", "tiktok", "kick"):
+        if name in key:
+            return name
+    return key or "web"
+
+
+def source_from_info(info: dict, url: str) -> dict:
+    """Normalise a yt-dlp info dict (YouTube video/Short, Twitch VOD/clip, TikTok...) to a source."""
+    platform = platform_of(info)
+    channel = (info.get("uploader_id") or info.get("channel") or info.get("uploader") or "").lstrip("@")
+    dur = float(info.get("duration") or 0)
+    lic = info.get("license") or ""
+    return {
+        "id": f"{platform}:{info.get('id')}", "platform": platform,
+        "kind": "clip" if dur and dur <= 90 else "video", "url": info.get("webpage_url") or url,
+        "title": info.get("title") or info.get("description") or "GTA 6 moment",
+        "channel": channel, "channel_id": info.get("channel_id") or info.get("uploader_id"),
+        "published_at": info.get("timestamp") or time.time(), "views": int(info.get("view_count") or 0),
+        "score": 100.0,  # hand-picked: top priority
+        "meta": {"game_match": True, "duration": dur, "heatmap": None,
+                 "license": "creativeCommon" if "creative commons" in lic.lower() else None},
+    }
+
+
+def add_url(db: DB, cfg, url: str) -> dict:
+    """Queue a specific video/stream/TikTok for clipping (still rights-gated)."""
+    from .clipping import download
+
+    src = source_from_info(download.info(url), url)
+    db.upsert_source(src)
+    d = rights.evaluate(src, cfg["rights"])
+    db.set_rights(src["id"], d.mode, d.reason)
+    res = {"source": src["id"], "platform": src["platform"], "channel": src["channel"], "rights": d.mode,
+           "reason": d.reason}
+    if not d.allowed:
+        res["ask_permission_message"] = rights.outreach_message(src, cfg["publish"]["channel_handle"])
+        return res
+    if db.has_job_for_source(src["id"], "clip"):
+        res["job"] = "already queued"
+        return res
+    status = "needs_voiceover" if d.constraints.get("require_voiceover") else "pending"
+    res["job"] = db.add_job("clip", {"url": src["url"], "mode": d.mode, "attribution": d.attribution,
+                                     "constraints": d.constraints}, source_id=src["id"], status=status)
+    return res
 
 
 def attach_voiceover(db: DB, job_id: str, wav: str) -> None:

@@ -32,9 +32,11 @@ SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["narration", "shot_ids", "ai_effect_prompt", "claim_ids", "is_factual"],
+                "required": ["narration", "fact_text", "shot_ids", "ai_effect_prompt", "claim_ids", "is_factual"],
                 "properties": {
-                    "narration": {"type": "string", "description": "6-14 words, punchy, spoken"},
+                    "narration": {"type": "string", "description": "8-16 words, one concrete fact, spoken"},
+                    "fact_text": {"type": "string",
+                                  "description": "the beat's key fact as a 1-4 word ALL CAPS card, e.g. '39 SCREENSHOTS', 'NOV 19', 'AIRBOATS'"},
                     "shot_ids": {"type": "array", "items": {"type": "string"},
                                  "description": "1-3 library shot ids that match this line"},
                     "ai_effect_prompt": {"type": ["string", "null"],
@@ -51,13 +53,15 @@ SCHEMA: dict[str, Any] = {
 
 SYSTEM = """You write viral YouTube Shorts / TikTok scripts for a GTA 6 news channel, weeks before launch.
 
-Format (15-25 seconds total, 45-65 spoken words):
-- hook: the first spoken line. A bold, specific claim or question that creates a curiosity gap
-  ("Rockstar just confirmed something huge about the swamps"). No greetings, no "hey guys".
+Format (20-28 seconds total, 70-95 spoken words, read fast):
+- hook: the first spoken line. Lead with the single most surprising concrete fact as a bold claim
+  or question that creates a curiosity gap. No greetings, no "hey guys", no filler.
 - hook_text: 2-5 word ALL CAPS on-screen version of the hook.
-- 3-5 beats, each 6-14 words, one idea per beat, fast and conversational. Concrete details beat
-  adjectives. The last beat pays off the hook and ends on a question or line that makes the
-  video loop naturally into the hook.
+- 5-7 beats, each 8-16 words, each delivering ONE concrete, new piece of information: a number,
+  date, name, place, vehicle, weapon, mechanic or feature, said specifically (not "lots of cool
+  stuff"). Pack as many distinct facts from the news as fit; no beat may just hype or repeat.
+- fact_text: the beat's key fact as a 1-4 word ALL CAPS card shown on screen.
+- The last beat pays off the hook and ends on a question or line that loops into the hook.
 - title: <=60 chars, curiosity-driven, true.
 
 Facts:
@@ -119,7 +123,9 @@ def template(items: list[dict], shots: list[dict]) -> dict:
     """No-API fallback: three strongest headlines over library shots in order."""
     items = sorted(items, key=lambda i: -TIER_RANK.get((i.get("meta") or {}).get("tier"), 0))[:3]
     ids = [s["id"] for s in shots]
-    beats = [{"narration": (i.get("title") or "").rstrip(".") + ".", "shot_ids": ids[n * 2:n * 2 + 2],
+    beats = [{"narration": (i.get("title") or "").rstrip(".") + ".",
+              "fact_text": " ".join((i.get("title") or "").upper().split()[:3]),
+              "shot_ids": ids[n * 2:n * 2 + 2],
               "ai_effect_prompt": None, "claim_ids": [i["id"]], "is_factual": True}
              for n, i in enumerate(items)]
     return {"title": "GTA 6 news you missed", "hook": "Three GTA 6 updates you missed this week.",

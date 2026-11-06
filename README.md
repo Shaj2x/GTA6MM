@@ -134,6 +134,20 @@ gta6mm library stats
 `higgsfield.daily_credit_budget` (default 60) is enforced when jobs are queued.
 The `/higgsfield-render` command checks your balance before it submits anything.
 
+## Launch day: clipping streamers, YouTubers and TikTokers
+
+From `release_date` on, **launch mode switches on automatically**: wider gameplay searches every
+cycle, 4 clips per source, up to 12 new clip jobs per cycle. Clip any specific link with:
+
+```bash
+gta6mm clip-url https://www.twitch.tv/videos/123 https://www.tiktok.com/@creator/video/456
+```
+
+YouTube videos and Shorts, Twitch VODs and clips, and TikTok links all work. Creators you have
+permission from (`rights.licensed_creators`, with `platform: tiktok` for TikTokers) are clipped
+straight away. Anyone else gets a ready-to-send permission message instead. TikTok has no public
+search API, so TikTok clips come from links you paste (or creators who send you theirs).
+
 ## Launch-window playbook
 
 | When | What to post |

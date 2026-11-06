@@ -154,9 +154,12 @@ def build(db, cfg, script: dict, voice: Path, ai_files: dict[int, str], work: Pa
     overlays = [edit.Overlay(script.get("hook_text", "").upper(), 0.0, hook_end + 0.4, y=330, size=96,
                              fg=(255, 255, 255, 255), bg=(220, 20, 40, 235))]
     for (a, b), beat in zip(times[1:], script["beats"]):
+        if beat.get("fact_text"):   # the beat's key fact as a big card
+            overlays.append(edit.Overlay(beat["fact_text"].upper(), a, b, y=420, size=84,
+                                         fg=(255, 225, 0, 255), bg=(0, 0, 0, 215)))
         if beat.get("badge"):
-            overlays.append(edit.Overlay(beat["badge"], a, b, y=560, size=46,
-                                         fg=(255, 230, 0, 255), bg=(0, 0, 0, 200)))
+            overlays.append(edit.Overlay(beat["badge"], a, b, y=300, size=44,
+                                         fg=(255, 255, 255, 255), bg=(220, 20, 40, 235)))
     t, used_ai = 0.0, False
     for c in cuts:
         if c.kind == "ai":

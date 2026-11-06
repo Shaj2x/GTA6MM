@@ -41,7 +41,7 @@ def for_news(script: dict, cfg) -> dict:
 
 
 def for_clip(src: dict, decision, cfg, hook: str) -> dict:
-    platform = {"twitch": "Twitch", "youtube": "YouTube"}.get(src["platform"], src["platform"])
+    platform = {"twitch": "Twitch", "youtube": "YouTube", "tiktok": "TikTok", "kick": "Kick"}.get(src["platform"], src["platform"])
     tags = cfg["publish"]["default_tags"]
     lines = [hook, "", f"Original: {decision.attribution or src.get('channel')} on {platform}: {src['url']}"]
     if decision.mode == "licensed":

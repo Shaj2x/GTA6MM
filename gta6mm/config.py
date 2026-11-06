@@ -49,8 +49,8 @@ DEFAULTS: dict[str, Any] = {
     "scripting": {"model": "claude-opus-5-5", "effort": "medium", "max_items": 12},
     "shorts": {
         "target_seconds": 20,         # 15-25s Shorts complete best
-        "max_cut_seconds": 1.8,       # fast pacing: a new shot at least this often
-        "min_cut_seconds": 0.7,
+        "max_cut_seconds": 1.1,       # fast pacing: a new shot at least this often
+        "min_cut_seconds": 0.5,
         "max_ai_clips": 1,            # AI only as an occasional effect shot
         "ai_cut_seconds": 1.4,
         "label_ai_cuts": False,       # on-screen "AI EFFECT" tag; the upload's AI flag is set either way
@@ -62,11 +62,21 @@ DEFAULTS: dict[str, Any] = {
         "video_params": {"duration": 5, "resolution": "720p", "generate_audio": False},
         "voice_model": "seed_audio",
         "voice_id": "1ad38ba4-9cc4-4f2f-9fde-b0fefdf67ae5",  # Gideon (Higgsfield preset)
-        "voice_params": {"speech_rate": 15, "loudness_rate": 10},  # punchier read
+        "voice_params": {"speech_rate": 30, "loudness_rate": 10},  # fast, punchy read
         "aspect_ratio": "9:16",
         "daily_credit_budget": 60,
         "est_credits_per_video": 5,
         "est_credits_per_voiceover": 1.5,
+    },
+    # From release day on, these overrides switch the system to clip-first launch mode.
+    "launch": {
+        "auto": True,
+        "overrides": {
+            "discovery": {"lookback_hours": 8, "max_results_per_query": 40,
+                          "queries": ["GTA 6", "GTA VI", "GTA 6 gameplay", "GTA 6 funny moments",
+                                      "GTA 6 first hour", "GTA 6 secrets"]},
+            "clipping": {"clips_per_source": 4, "clip_seconds": 28, "max_new_clip_jobs_per_cycle": 12},
+        },
     },
     "publish": {
         "auto_approve": False,
@@ -115,4 +125,13 @@ def load(path: str | os.PathLike | None = None) -> Config:
     load_dotenv(Path(".env"))
     path = Path(path or os.environ.get("GTA6MM_CONFIG", "config.yaml"))
     user = yaml.safe_load(path.read_text()) if path.exists() else {}
-    return Config(_merge(DEFAULTS, user or {}))
+    cfg = _merge(DEFAULTS, user or {})
+    if cfg["launch"].get("auto") and launched(cfg["release_date"]):
+        cfg = _merge(cfg, cfg["launch"]["overrides"])
+        cfg["launch_mode"] = True
+    return Config(cfg)
+
+
+def launched(release_date: str, today=None) -> bool:
+    from datetime import date
+    return (today or date.today()) >= date.fromisoformat(release_date)

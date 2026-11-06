@@ -81,7 +81,7 @@ def test_news_short_uses_real_footage_and_is_short(lib):
     assert parent
     pend = hf.pending(db)
     assert [p["tool"] for p in pend] == ["generate_audio"]           # no AI video by default
-    assert pend[0]["params"]["speech_rate"] == 15
+    assert pend[0]["params"]["speech_rate"] == 30
     assert pipeline.news_cycle(db, cfg) is None                       # same news -> no duplicate
     complete_all(db, cfg, tmp, voice_seconds=8)
     final = Path(db.get_job(parent)["output"])
@@ -210,3 +210,40 @@ def test_failed_assemble_is_retried_and_caption_errors_dont_block(lib, monkeypat
     monkeypatch.setattr(captions, "words", lambda *a, **k: None)   # whisper unavailable
     complete_all(db, cfg, tmp, voice_seconds=4)
     assert db.get_job(parent)["status"] == "done"
+
+
+def test_clip_url_tiktok_licensed_and_blocked(env, monkeypatch):
+    cfg, db, tmp = env
+    cfg["rights"]["licensed_creators"].append(
+        {"platform": "tiktok", "channel": "gtaclipper", "evidence": "TikTok DM 11/06", "attribution": "@gtaclipper"})
+    from gta6mm.clipping import download
+    infos = {
+        "https://www.tiktok.com/@gtaclipper/video/1": {"extractor_key": "TikTok", "id": "1", "uploader_id": "gtaclipper",
+            "title": "GTA 6 cops chase me into the swamp", "duration": 9, "view_count": 50000},
+        "https://www.tiktok.com/@stranger/video/2": {"extractor_key": "TikTok", "id": "2", "uploader_id": "stranger",
+            "title": "GTA 6 insane stunt", "duration": 12},
+    }
+    monkeypatch.setattr(download, "info", lambda url: infos[url])
+
+    def fake_fetch(url, out, sections=None, max_height=1080):
+        Path(out).mkdir(parents=True, exist_ok=True)
+        return [mk_video(Path(out) / "v.mp4", 9, size="720x1280")]   # TikToks are vertical
+    monkeypatch.setattr(download, "fetch", fake_fetch)
+
+    ok = pipeline.add_url(db, cfg, "https://www.tiktok.com/@gtaclipper/video/1")
+    assert ok["platform"] == "tiktok" and ok["rights"] == "licensed" and ok["job"].startswith("clip-")
+    no = pipeline.add_url(db, cfg, "https://www.tiktok.com/@stranger/video/2")
+    assert no["rights"] == "blocked" and "revenue share" in no["ask_permission_message"]
+    assert pipeline.process_clips(db, cfg) == 1
+    post = db.posts(platform="youtube")[0]
+    assert "@gtaclipper on TikTok" in post["description"]
+
+
+def test_launch_mode_switches_on_release_day(tmp_path, monkeypatch):
+    from datetime import date
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("release_date: '2000-01-01'\n")
+    cfg = config.load()
+    assert cfg.get("launch_mode") and cfg["clipping"]["clips_per_source"] == 4
+    (tmp_path / "config.yaml").write_text(f"release_date: '{date.today().replace(year=date.today().year + 1)}'\n")
+    assert not config.load().get("launch_mode")

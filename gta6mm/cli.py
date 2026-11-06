@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("-n", type=int, default=20)
     sub.add_parser("outreach", help="permission DMs for trending creators you can't clip yet")
     sub.add_parser("clip", help="plan + render clips for rights-cleared sources")
+    cu = sub.add_parser("clip-url", help="clip a specific YouTube/Twitch/TikTok link (rights-gated)")
+    cu.add_argument("urls", nargs="+")
     vo = sub.add_parser("clip-voiceover", help="attach your commentary track to a needs_voiceover job")
     vo.add_argument("job_id")
     vo.add_argument("wav")
@@ -64,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
 
     a = ap.parse_args(argv)
     cfg = config.load(a.config)
+    if cfg.get("launch_mode") and a.cmd == "run":
+        print("[launch mode] GTA 6 is out: clip-first settings active")
     db = pipeline.open_db(cfg)
 
     if a.cmd == "discover":
@@ -75,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
         _print(pipeline.outreach(db, cfg))
     elif a.cmd == "clip":
         pipeline.plan_clips(db, cfg)
+        pipeline.process_clips(db, cfg)
+    elif a.cmd == "clip-url":
+        for u in a.urls:
+            _print(pipeline.add_url(db, cfg, u))
         pipeline.process_clips(db, cfg)
     elif a.cmd == "clip-voiceover":
         pipeline.attach_voiceover(db, a.job_id, a.wav)
