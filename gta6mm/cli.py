@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.brief:
             for j in jobs:
                 p = j["params"]
-                print(f"{j['job_id']}  {j['tool']}  {(p.get('prompt') or '')[:90]}")
+                print(f"\n{j['job_id']}  ({j['tool']})\n  {p.get('prompt') or ''}")
             if not jobs:
                 print("(nothing pending)")
         else:

@@ -42,6 +42,7 @@ DEFAULTS: dict[str, Any] = {
         "title_filter": r"Grand Theft Auto VI|GTA VI",
         "scan_latest": 120,           # how many recent channel uploads to scan
         "extra_urls": [],             # other official Rockstar video URLs
+        "cookies_from_browser": "",   # e.g. "chrome" or "safari" for age-restricted trailers
         "min_shot_seconds": 0.7,
         "max_shot_seconds": 2.5,
     },

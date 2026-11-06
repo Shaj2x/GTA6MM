@@ -47,7 +47,7 @@ def official_videos(cfg) -> list[dict]:
     return out
 
 
-def download(video: dict, dest: Path) -> Path:
+def download(video: dict, dest: Path, browser: str = "") -> Path:
     import yt_dlp
 
     target = dest / f"{video['id']}.mp4"
@@ -55,6 +55,8 @@ def download(video: dict, dest: Path) -> Path:
         return target
     opts = {"quiet": True, "noplaylist": True, "format": "bv*[height<=1080][ext=mp4]/bv*[height<=1080]",
             "outtmpl": str(dest / f"{video['id']}.%(ext)s"), "merge_output_format": "mp4"}
+    if browser:  # age-restricted uploads need a signed-in YouTube session
+        opts["cookiesfrombrowser"] = (browser,)
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([video["url"]])
     found = sorted(dest.glob(f"{video['id']}.*"))
@@ -137,7 +139,7 @@ def sync(db, cfg, log=print) -> dict:
         if db.has_asset(v["id"]):
             continue
         try:
-            path = download(v, d / "videos")
+            path = download(v, d / "videos", cfg["library"].get("cookies_from_browser", ""))
             res["shots"] += index_video(db, cfg, path, v["id"], v["title"])
             res["videos"] += 1
             log(f"[library] indexed {v['title']}")

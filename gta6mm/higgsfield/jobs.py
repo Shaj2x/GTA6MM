@@ -124,7 +124,11 @@ def complete(db, cfg, job_id: str, url: str | None = None, error: str | None = N
 
 
 def cancel(db, parent_id: str) -> int:
-    """Drop a queued short and the segments not yet submitted (frees its budget)."""
+    """Drop a queued short and the segments not yet submitted (frees its budget).
+    Accepts the assemble-... id or any of its hf_... job ids."""
+    j = db.get_job(parent_id)
+    if j and j["kind"] != "assemble" and j.get("parent_id"):
+        parent_id = j["parent_id"]
     n = 0
     for k in db.jobs(parent_id=parent_id):
         if k["status"] == "pending":
