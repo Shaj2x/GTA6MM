@@ -42,7 +42,7 @@ DEFAULTS: dict[str, Any] = {
         "video_model": "seedance_2_0_mini",
         "video_params": {"duration": 5, "resolution": "720p", "generate_audio": False},
         "voice_model": "seed_audio",
-        "voice_id": "",           # from Higgsfield list_voices; empty = agent picks a preset
+        "voice_id": "1ad38ba4-9cc4-4f2f-9fde-b0fefdf67ae5",  # Gideon (Higgsfield preset)
         "aspect_ratio": "9:16",
         "daily_credit_budget": 60,
         "est_credits_per_video": 5,

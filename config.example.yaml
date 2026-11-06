@@ -52,7 +52,7 @@ higgsfield:
   video_model: seedance_2_0_mini
   video_params: {duration: 5, resolution: "720p", generate_audio: false}
   voice_model: seed_audio
-  voice_id: ""                      # pick one with the agent (Higgsfield list_voices); empty = agent chooses
+  voice_id: "1ad38ba4-9cc4-4f2f-9fde-b0fefdf67ae5"   # Gideon (Higgsfield preset)
   aspect_ratio: "9:16"
   daily_credit_budget: 60           # hard cap on credits queued per day
   est_credits_per_video: 5
