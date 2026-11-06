@@ -67,7 +67,12 @@ def fallback_words(sections: list[str], times: list[tuple[float, float]]):
 def plan(script: dict, times: list[tuple[float, float]], shots_by_id: dict, pool: list[dict],
          ai_files: dict[int, str], cfg) -> list[Cut]:
     """times[0] is the hook, times[1:] are beats."""
-    sc = cfg["shorts"]
+    sc = dict(cfg["shorts"])
+    from ..study import load_profile
+    prof = load_profile(cfg)
+    if prof and prof.get("seconds_per_cut"):   # follow the reference account's pacing
+        sc["max_cut_seconds"] = min(2.5, max(0.45, float(prof["seconds_per_cut"])))
+        sc["min_cut_seconds"] = min(sc["min_cut_seconds"], sc["max_cut_seconds"] * 0.6)
     used: set[str] = set()
     rng = random.Random(len(pool))
     pool_sorted = sorted(pool, key=lambda s: (s.get("used_count", 0), rng.random()))

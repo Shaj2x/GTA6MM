@@ -134,6 +134,23 @@ gta6mm library stats
 `higgsfield.daily_credit_budget` (default 60) is enforced when jobs are queued.
 The `/higgsfield-render` command checks your balance before it submits anything.
 
+## Copy a format you like
+
+```bash
+gta6mm study https://www.tiktok.com/@someaccount     # or a single video link
+gta6mm style                                          # see the learned profile
+gta6mm style clear                                    # go back to the default format
+```
+
+`study` downloads the account's latest few videos and measures:
+- seconds per cut and spoken words per second
+- length, the hook in the first 3 seconds, and the caption and hashtags
+
+It also saves a contact sheet of each video. Claude then writes `data/style_profile.json`. From
+then on, new scripts follow that account's hook style, structure, length and ending, and the
+editor matches its cut speed. Only the format is learned; their wording and footage are never
+reused.
+
 ## Launch day: clipping streamers, YouTubers and TikTokers
 
 From `release_date` on, **launch mode switches on automatically**: wider gameplay searches every

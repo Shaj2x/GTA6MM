@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     n = sub.add_parser("news", help="write a sourced script and queue Higgsfield jobs")
     n.add_argument("--force", action="store_true")
 
+    st = sub.add_parser("study", help="learn the format of a reference account or video")
+    st.add_argument("url")
+    st.add_argument("-n", type=int, default=4, help="how many recent videos to study")
+    sty = sub.add_parser("style", help="show or clear the learned style profile")
+    sty.add_argument("action", nargs="?", choices=["show", "clear"], default="show")
     lib = sub.add_parser("library", help="official Rockstar media library")
     lib.add_argument("action", choices=["sync", "tag", "stats"])
     hp = sub.add_parser("hf-pending", help="print Higgsfield jobs for the agent")
@@ -91,6 +96,26 @@ def main(argv: list[str] | None = None) -> int:
         pipeline.process_clips(db, cfg)
     elif a.cmd == "news":
         pipeline.news_cycle(db, cfg, force=a.force)
+    elif a.cmd == "study":
+        from . import study
+        res = study.study(a.url, cfg, a.n, log=pipeline.log)
+        for v in res["videos"]:
+            print(f"\n{v['url']}\n  {v['seconds']}s long, cut every {v['seconds_per_cut']}s, "
+                  f"{v['words_per_second']} words/s, views {v['views']}\n  hook: {v['hook_first_3s']!r}"
+                  f"\n  contact sheet: {v['sheet']}")
+        if res["profile"]:
+            print("\nSTYLE PROFILE saved to data/style_profile.json (new scripts follow it):")
+            _print({k: v for k, v in res["profile"].items() if k != "source"})
+        else:
+            print("\nAdd ANTHROPIC_API_KEY to .env to turn this into a style profile.")
+    elif a.cmd == "style":
+        from . import study
+        p = cfg.data_dir / "style_profile.json"
+        if a.action == "clear":
+            p.unlink(missing_ok=True)
+            print("style profile cleared")
+        else:
+            _print(study.load_profile(cfg) or "no style profile yet: run `gta6mm study <link>`")
     elif a.cmd == "library":
         from .library import media, tagger
         if a.action == "sync":

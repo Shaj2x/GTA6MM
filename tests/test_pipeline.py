@@ -258,3 +258,22 @@ def test_rebuild_reedits_without_new_jobs(lib):
     assert db.get_job(parent)["status"] == "done"
     assert cli.main(["rebuild"]) == 0
     assert db.get_job(parent)["status"] == "done" and hf.pending(db) == []
+
+
+def test_style_profile_feeds_writer_and_pacing(lib):
+    import json as _json
+    from gta6mm import study
+    from gta6mm.clipping import timeline
+    from gta6mm.scripting import writer
+    cfg, db, tmp = lib
+    sheet = study.contact_sheet(mk_video(tmp / "ref.mp4", 4), tmp / "sheet.jpg")
+    assert sheet.exists()
+    prof = {"hook_pattern": "shock stat", "structure": "list of 3", "tone": "hype", "ending_pattern": "question",
+            "target_seconds": 18, "words_per_second": 3.5, "script_guidance": "short lines", "seconds_per_cut": 0.6}
+    (cfg.data_dir / "style_profile.json").write_text(_json.dumps(prof))
+    note = writer.style_note(study.load_profile(cfg))
+    assert "shock stat" in note and "about 18 seconds" in note and "never copy" in note
+    shots = db.shots()
+    script = {"beats": [{"shot_ids": []}, {"shot_ids": []}]}
+    cuts = timeline.plan(script, [(0, 1.2), (1.2, 4.2), (4.2, 7.2)], {s["id"]: s for s in shots}, shots, {}, cfg)
+    assert max(c.length for c in cuts) <= 0.61

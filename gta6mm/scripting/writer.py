@@ -95,7 +95,19 @@ def _fmt_shots(shots: list[dict], limit: int = 160) -> str:
     return "\n".join(rows)
 
 
-def generate(items: list[dict], shots: list[dict], model: str, effort: str) -> dict:
+def style_note(profile: dict | None) -> str:
+    if not profile:
+        return ""
+    words = int(profile.get("target_seconds", 25) * min(4.2, max(2.0, profile.get("words_per_second", 3.2))))
+    return ("\n\nFORMAT REFERENCE - match this account's format (structure, hook style, pacing, tone, "
+            "ending), but never copy their wording or content, and keep every rule above:\n"
+            f"- Hook: {profile.get('hook_pattern')}\n- Structure: {profile.get('structure')}\n"
+            f"- Tone: {profile.get('tone')}\n- Ending: {profile.get('ending_pattern')}\n"
+            f"- Length: about {profile.get('target_seconds')} seconds, roughly {words} spoken words\n"
+            f"- Guidance: {profile.get('script_guidance')}")
+
+
+def generate(items: list[dict], shots: list[dict], model: str, effort: str, style: str = "") -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -106,7 +118,7 @@ def generate(items: list[dict], shots: list[dict], model: str, effort: str) -> d
         fallbacks="default",
         thinking={"type": "adaptive"},
         output_config={"effort": effort, "format": {"type": "json_schema", "schema": SCHEMA}},
-        system=SYSTEM,
+        system=SYSTEM + style,
         messages=[{"role": "user", "content":
                    "News items (JSON lines):\n" + _fmt_items(items)
                    + "\n\nOfficial shot library (id: description):\n" + (_fmt_shots(shots) or "(empty)")}],
@@ -173,7 +185,8 @@ def write(items: list[dict], shots: list[dict], cfg) -> dict:
     sc = cfg["scripting"]
     items = items[: sc.get("max_items", 12)]
     if cfg.env("ANTHROPIC_API_KEY") or cfg.env("ANTHROPIC_AUTH_TOKEN"):
-        raw = generate(items, shots, sc["model"], sc.get("effort", "medium"))
+        from ..study import load_profile
+        raw = generate(items, shots, sc["model"], sc.get("effort", "medium"), style_note(load_profile(cfg)))
     else:
         raw = template(items, shots)
     return validate(raw, items, shots, cfg["shorts"]["max_ai_clips"])
