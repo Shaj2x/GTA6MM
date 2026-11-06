@@ -56,6 +56,7 @@ DEFAULTS: dict[str, Any] = {
         "label_ai_cuts": False,       # on-screen "AI EFFECT" tag; the upload's AI flag is set either way
         "music_file": "",             # optional royalty-free bed (e.g. YouTube Audio Library)
         "music_volume": 0.12,
+        "sfx": True,                  # synthesised whoosh + hit on every beat
     },
     "higgsfield": {
         "video_model": "seedance_2_0_mini",

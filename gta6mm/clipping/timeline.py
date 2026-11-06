@@ -15,6 +15,7 @@ from pathlib import Path
 from . import captions
 from . import edit
 from . import ffmpeg as ff
+from . import style
 
 W, H, FPS = edit.W, edit.H, edit.FPS
 ACTION_TAGS = {"chase", "police", "explosion", "car", "boat", "helicopter", "gun", "robbery", "beach",
@@ -29,6 +30,7 @@ class Cut:
     length: float
     shot_id: str | None = None
     pan_left: bool = True
+    punch: bool = False   # first cut of a beat: hard zoom-punch for impact
 
 
 # ---------------------------------------------------------------- timing
@@ -97,7 +99,8 @@ def plan(script: dict, times: list[tuple[float, float]], shots_by_id: dict, pool
         for k in range(n):
             s = take(preferred[k:k + 1] if k < len(preferred) else [])
             ln = real / n
-            seg_cuts.append(Cut(s["path"], s["kind"], float(s.get("start") or 0), ln, s["id"], pan))
+            seg_cuts.append(Cut(s["path"], s["kind"], float(s.get("start") or 0), ln, s["id"], pan,
+                                punch=(k == 0)))
             pan = not pan
         if sec["ai"]:
             seg_cuts.insert(len(seg_cuts) // 2 + (1 if len(seg_cuts) > 1 else 0),
@@ -107,17 +110,51 @@ def plan(script: dict, times: list[tuple[float, float]], shots_by_id: dict, pool
 
 
 # ---------------------------------------------------------------- rendering
+GRADE = "eq=contrast=1.12:saturation=1.3:brightness=0.01,unsharp=5:5:0.6,vignette=angle=PI/5"
+
+
 def render_cut(c: Cut, out: Path) -> Path:
-    p0, p1 = (0.3, 0.7) if c.pan_left else (0.7, 0.3)
+    """One cut, full-bleed 9:16 with motion: punch-zoom on beat starts, slow push otherwise."""
+    p0, p1 = (0.35, 0.65) if c.pan_left else (0.65, 0.35)
+    n = max(1, round(c.length * FPS))
+    if c.punch:
+        z = "1.05+0.22*exp(-on/3)"           # slam in then settle
+    elif c.pan_left:
+        z = f"1.0+0.10*on/{n}"                 # slow push in
+    else:
+        z = f"1.10-0.10*on/{n}"                # slow pull out
     if c.kind == "image":
         inp = ["-loop", "1", "-t", f"{c.length + 0.5:.3f}", "-i", c.path]
     else:
         inp = ["-ss", f"{c.inpoint:.3f}", "-i", c.path]
     vf = (f"fps={FPS},scale={W}:{H}:force_original_aspect_ratio=increase,"
           f"crop={W}:{H}:x='(iw-{W})*({p0}+({p1 - p0})*min(t/{c.length:.3f}\\,1))':y='(ih-{H})/2',"
-          f"setsar=1,tpad=stop_mode=clone:stop_duration={c.length + 1:.2f},format=yuv420p")
+          f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
+          f"{GRADE},setsar=1,tpad=stop_mode=clone:stop_duration={c.length + 1:.2f},format=yuv420p")
     ff.run(inp + ["-an", "-vf", vf, "-t", f"{c.length:.3f}", "-r", str(FPS), "-c:v", "libx264",
                   "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", str(out)])
+    return out
+
+
+def sfx_track(beat_starts: list[float], total: float, work: Path) -> Path:
+    """Whoosh into every beat + a low hit on it, synthesised (no licensing issues)."""
+    whoosh, hit = work / "whoosh.wav", work / "hit.wav"
+    ff.run(["-f", "lavfi", "-i", "anoisesrc=d=0.35:c=pink:r=48000:a=0.7", "-af",
+            "highpass=f=350,lowpass=f=7000,afade=t=in:st=0:d=0.27:curve=exp,afade=t=out:st=0.27:d=0.08",
+            "-ac", "2", str(whoosh)])
+    ff.run(["-f", "lavfi", "-i", "aevalsrc=exprs='0.9*sin(2*PI*(48+110*exp(-t*28))*t)*exp(-t*8)':s=48000:d=0.55",
+            "-ac", "2", str(hit)])
+    events = [(max(0.0, t - 0.3), whoosh, 0.35) for t in beat_starts] + [(t, hit, 0.55) for t in beat_starts]
+    args = ["-f", "lavfi", "-t", f"{total:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    fc = []
+    for i, (t, f, vol) in enumerate(events, 1):
+        args += ["-i", str(f)]
+        ms = int(t * 1000)
+        fc.append(f"[{i}:a]volume={vol},adelay={ms}|{ms}[e{i}]")
+    mix = "[0:a]" + "".join(f"[e{i}]" for i in range(1, len(events) + 1))
+    fc.append(f"{mix}amix=inputs={len(events) + 1}:duration=first:normalize=0[fx]")
+    out = work / "sfx.wav"
+    ff.run(args + ["-filter_complex", ";".join(fc), "-map", "[fx]", str(out)])
     return out
 
 
@@ -151,30 +188,32 @@ def build(db, cfg, script: dict, voice: Path, ai_files: dict[int, str], work: Pa
     srt.write_text(captions.to_srt(captions.chunk_words(ws or fallback_words(sections, times), 3)))
 
     hook_end = times[0][1]
-    overlays = [edit.Overlay(script.get("hook_text", "").upper(), 0.0, hook_end + 0.4, y=330, size=96,
-                             fg=(255, 255, 255, 255), bg=(220, 20, 40, 235))]
-    for (a, b), beat in zip(times[1:], script["beats"]):
-        if beat.get("fact_text"):   # the beat's key fact as a big card
-            overlays.append(edit.Overlay(beat["fact_text"].upper(), a, b, y=420, size=84,
-                                         fg=(255, 225, 0, 255), bg=(0, 0, 0, 215)))
+    overlays = [edit.Overlay(script.get("hook_text", "").upper(), 0.0, hook_end + 0.4, y=300, size=150,
+                             fg=style.WHITE, bg=style.RED, style="hook", pop=True, rotate=-2.5)]
+    for n, ((a, b), beat) in enumerate(zip(times[1:], script["beats"])):
+        if beat.get("fact_text"):   # the beat's key fact as a big yellow card
+            overlays.append(edit.Overlay(beat["fact_text"].upper(), a, b, y=430, size=130,
+                                         fg=style.BLACK, bg=style.YELLOW, style="card", pop=True,
+                                         rotate=2.0 if n % 2 else -2.0))
         if beat.get("badge"):
-            overlays.append(edit.Overlay(beat["badge"], a, b, y=300, size=44,
-                                         fg=(255, 255, 255, 255), bg=(220, 20, 40, 235)))
+            overlays.append(edit.Overlay(beat["badge"], a, b, y=300, size=52, fg=style.WHITE,
+                                         bg=style.RED, style="badge"))
     t, used_ai = 0.0, False
     for c in cuts:
         if c.kind == "ai":
             used_ai = True
         if c.kind == "ai" and cfg["shorts"].get("label_ai_cuts"):
-            overlays.append(edit.Overlay("AI EFFECT", t, t + c.length, y=60, size=30,
-                                         fg=(255, 255, 255, 255), bg=(0, 0, 0, 170)))
+            overlays.append(edit.Overlay("AI EFFECT", t, t + c.length, y=60, size=28, style="badge", x=40))
         t += c.length
 
     sc = cfg["shorts"]
     music = Path(sc["music_file"]) if sc.get("music_file") and Path(sc["music_file"]).is_file() else None
     out = work / "final.mp4"
+    beat_starts = [a for a, _ in times[1:]]
+    fx = sfx_track(beat_starts, total, work) if sc.get("sfx", True) else None
     edit.render(edit.RenderSpec(
         src=base, out=out, font=cfg["clipping"]["font"], credit=credit, voiceover=voice,
-        captions_srt=srt, overlays=overlays, source_volume=0.0, layout="none",
-        flashes=[a for a, _ in times[1:]], music=music, music_volume=sc.get("music_volume", 0.12),
-        caption_y=1150, caption_size=88))
+        caption_words=ws or fallback_words(sections, times), overlays=overlays, source_volume=0.0,
+        layout="none", flashes=beat_starts, music=music, music_volume=sc.get("music_volume", 0.12),
+        sfx=fx, caption_y=1180, caption_size=100, progress=True))
     return out, used_ai
