@@ -9,6 +9,7 @@ dependencies = [
   "feedparser>=6",
   "yt-dlp>=2025.1.1",
   "anthropic>=2.0",
+  "pillow>=10",
 ]
 
 [project.optional-dependencies]

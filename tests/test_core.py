@@ -141,3 +141,23 @@ def test_resolve_font_falls_back_when_configured_font_missing():
     from gta6mm.clipping import ffmpeg as ff
     f = ff.resolve_font("/nope/DoesNotExist.ttf")
     assert Path(f).is_file()
+
+
+def test_render_uses_only_core_ffmpeg_filters(tmp_path):
+    """Homebrew's ffmpeg has no drawtext/subtitles; text must be PNG overlays."""
+    import subprocess
+    from pathlib import Path
+    from gta6mm.clipping import edit
+    src = tmp_path / "s.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:duration=2",
+                    "-pix_fmt", "yuv420p", str(src)], check=True)
+    srt = tmp_path / "c.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHELLO\n")
+    spec = edit.RenderSpec(src=src, out=tmp_path / "o.mp4", font="", title="t", badge="b", credit="c",
+                           captions_srt=srt, overlays=[edit.Overlay("x", 0, 1)])
+    spec.font = __import__("gta6mm.clipping.ffmpeg", fromlist=["x"]).resolve_font("")
+    cmd = " ".join(edit.build_command(spec, tmp_path))
+    assert "drawtext" not in cmd and "subtitles=" not in cmd
+    assert edit.parse_srt(srt) == [(0.0, 1.0, "HELLO")]
+    edit.render(spec)
+    assert Path(spec.out).exists()
