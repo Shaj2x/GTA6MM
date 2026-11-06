@@ -161,6 +161,7 @@ def build(db, cfg, script: dict, voice: Path, ai_files: dict[int, str], work: Pa
     for c in cuts:
         if c.kind == "ai":
             used_ai = True
+        if c.kind == "ai" and cfg["shorts"].get("label_ai_cuts"):
             overlays.append(edit.Overlay("AI EFFECT", t, t + c.length, y=60, size=30,
                                          fg=(255, 255, 255, 255), bg=(0, 0, 0, 170)))
         t += c.length

@@ -53,6 +53,7 @@ DEFAULTS: dict[str, Any] = {
         "min_cut_seconds": 0.7,
         "max_ai_clips": 1,            # AI only as an occasional effect shot
         "ai_cut_seconds": 1.4,
+        "label_ai_cuts": False,       # on-screen "AI EFFECT" tag; the upload's AI flag is set either way
         "music_file": "",             # optional royalty-free bed (e.g. YouTube Audio Library)
         "music_volume": 0.12,
     },
