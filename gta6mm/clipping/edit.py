@@ -114,6 +114,7 @@ def build_command(spec: RenderSpec) -> list[str]:
 
 def render(spec: RenderSpec) -> Path:
     ff.require()
+    spec.font = ff.resolve_font(spec.font).replace(":", "\\:")
     spec.out.parent.mkdir(parents=True, exist_ok=True)
     ff.run(build_command(spec))
     return spec.out

@@ -36,6 +36,29 @@ def has_audio(path: str | Path) -> bool:
     return any(s["codec_type"] == "audio" for s in probe(path)["streams"])
 
 
+FONT_CANDIDATES = [
+    # macOS
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Verdana Bold.ttf",
+    # Linux
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    # Windows
+    "C:/Windows/Fonts/arialbd.ttf",
+]
+
+
+def resolve_font(preferred: str | None) -> str:
+    """The configured font if it exists on this machine, else the first bold
+    sans font found (config files get copied between Linux and macOS)."""
+    for f in [preferred, *FONT_CANDIDATES]:
+        if f and Path(f).is_file():
+            return f
+    raise RuntimeError("no usable font found; set clipping.font in config.yaml to a .ttf file")
+
+
 def escape_text(s: str) -> str:
     """Escape for drawtext text='...' (used with expansion=none, so % is literal)."""
     s = s.replace("\\", "\\\\").replace("'", "’").replace(":", "\\:")

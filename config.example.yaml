@@ -38,7 +38,7 @@ clipping:
   clips_per_source: 3
   clip_seconds: 30
   max_new_clip_jobs_per_cycle: 6
-  font: /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+  font: ""                          # empty = auto-detect a bold system font (macOS/Linux/Windows)
   captions: true                    # needs `pip install .[captions]`
 
 scripting:

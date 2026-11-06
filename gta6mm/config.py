@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
         "clips_per_source": 3,
         "clip_seconds": 30,
         "max_new_clip_jobs_per_cycle": 6,
-        "font": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "font": "",  # auto-detect
         "captions": True,
     },
     "scripting": {"model": "claude-opus-5-5", "effort": "medium", "max_items": 12},

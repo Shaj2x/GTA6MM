@@ -134,3 +134,10 @@ def test_countdown():
 def test_youtube_body_discloses_synthetic():
     b = youtube_upload.body({"title": "t", "description": "d", "tags": [], "synthetic": 1}, "private")
     assert b["status"]["containsSyntheticMedia"] is True and b["status"]["privacyStatus"] == "private"
+
+
+def test_resolve_font_falls_back_when_configured_font_missing():
+    from pathlib import Path
+    from gta6mm.clipping import ffmpeg as ff
+    f = ff.resolve_font("/nope/DoesNotExist.ttf")
+    assert Path(f).is_file()
