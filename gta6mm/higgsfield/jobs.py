@@ -127,7 +127,8 @@ def cancel(db, parent_id: str) -> int:
 
 def ready(db) -> list[dict]:
     res = []
-    for parent in db.jobs(kind="assemble", status="waiting"):
+    # failed parents are retried once all their segments are done (e.g. a render bug was fixed)
+    for parent in db.jobs(kind="assemble", status="waiting") + db.jobs(kind="assemble", status="failed"):
         kids = db.jobs(parent_id=parent["id"])
         if kids and all(k["status"] == "done" for k in kids):
             parent["children"] = kids

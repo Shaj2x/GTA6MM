@@ -35,8 +35,22 @@ def transcribe(media: Path, out_srt: Path, start: float = 0.0, length: float | N
         from faster_whisper import WhisperModel
     except ImportError:
         return None
-    model = WhisperModel("small", compute_type="int8")
-    segments, _ = model.transcribe(str(media), word_timestamps=True, vad_filter=True)
+    import subprocess
+
+    import numpy as np
+
+    try:
+        # Decode with ffmpeg ourselves: faster-whisper's own decoder (PyAV) breaks
+        # across PyAV versions, and captions must never block a render.
+        pcm = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(media), "-f", "s16le",
+                              "-ac", "1", "-ar", "16000", "-"], capture_output=True, check=True).stdout
+        audio = np.frombuffer(pcm, np.int16).astype(np.float32) / 32768.0
+        model = WhisperModel("small", compute_type="int8")
+        segments, _ = model.transcribe(audio, word_timestamps=True, vad_filter=True)
+        segments = list(segments)
+    except Exception as exc:
+        print(f"[captions] skipped: {exc}")
+        return None
     words = []
     for seg in segments:
         for w in seg.words or []:

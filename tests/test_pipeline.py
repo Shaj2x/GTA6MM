@@ -155,3 +155,19 @@ def test_cancel_frees_budget(env):
     assert db.credits_queued_since(0) > 0
     assert hf.cancel(db, parent) == 6
     assert db.credits_queued_since(0) == 0 and hf.pending(db) == []
+
+
+def test_failed_assemble_is_retried_and_caption_errors_dont_block(env, monkeypatch):
+    cfg, db, tmp = env
+    cfg["clipping"]["captions"] = True
+    add_news(db, 2)
+    parent = pipeline.news_cycle(db, cfg)
+    for p in hf.pending(db):
+        f = (mk_video(tmp / f"{p['job_id']}.mp4", 2, size="720x1280", audio=False)
+             if p["tool"] == "generate_video" else mk_audio(tmp / f"{p['job_id']}.mp3", 4))
+        hf.complete(db, cfg, p["job_id"], file=str(f))
+    db.update_job(parent, status="failed", error="old caption crash")  # state the user was left in
+    from gta6mm.clipping import captions
+    monkeypatch.setattr(captions, "transcribe", lambda *a, **k: None)  # captions unavailable
+    assert pipeline.assemble_ready(db, cfg) == 1
+    assert db.get_job(parent)["status"] == "done"
