@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--error")
     cx = sub.add_parser("hf-cancel", help="cancel a queued AI short (assemble-... id)")
     cx.add_argument("parent_id")
+    rb = sub.add_parser("rebuild", help="re-edit a finished short with the current style (no credits)")
+    rb.add_argument("parent_id", nargs="?", help="assemble-... id (default: most recent)")
     sub.add_parser("assemble", help="build finished AI shorts whose segments are done")
 
     r = sub.add_parser("review", help="list posts awaiting approval")
@@ -120,6 +122,17 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "hf-cancel":
         print(f"cancelled {hf.cancel(db, a.parent_id)} queued segments")
         hf.export_pending(db, cfg)
+    elif a.cmd == "rebuild":
+        done = [j for j in db.jobs(kind="assemble") if j["status"] in ("done", "failed")]
+        target = a.parent_id or (done[-1]["id"] if done else None)
+        if not target:
+            print("no finished short to rebuild")
+            return 1
+        db.update_job(target, status="waiting")
+        for p in db.posts():
+            if p["job_id"] == target and p["status"] == "awaiting_approval":
+                db.update_post(p["id"], status="rejected")   # replaced by the rebuilt version
+        pipeline.assemble_ready(db, cfg)
     elif a.cmd == "assemble":
         pipeline.assemble_ready(db, cfg)
     elif a.cmd == "review":

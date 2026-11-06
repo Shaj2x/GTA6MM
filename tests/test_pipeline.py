@@ -247,3 +247,14 @@ def test_launch_mode_switches_on_release_day(tmp_path, monkeypatch):
     assert cfg.get("launch_mode") and cfg["clipping"]["clips_per_source"] == 4
     (tmp_path / "config.yaml").write_text(f"release_date: '{date.today().replace(year=date.today().year + 1)}'\n")
     assert not config.load().get("launch_mode")
+
+
+def test_rebuild_reedits_without_new_jobs(lib):
+    from gta6mm import cli
+    cfg, db, tmp = lib
+    add_news(db, 2)
+    parent = pipeline.news_cycle(db, cfg)
+    complete_all(db, cfg, tmp, voice_seconds=4)
+    assert db.get_job(parent)["status"] == "done"
+    assert cli.main(["rebuild"]) == 0
+    assert db.get_job(parent)["status"] == "done" and hf.pending(db) == []
